@@ -40,7 +40,7 @@ def load_config():
     config = {
         "openrouter_key": "",
         "api_url": DEFAULT_API_URL,
-        "model": "google/gemini-flash-1.5",
+        "model": "anthropic/claude-3-haiku",
         "theme": "dark"
     }
     save_config(config)
