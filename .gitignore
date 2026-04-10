@@ -1,0 +1,32 @@
+# Recon output — never commit target data
+recon_*/
+targets/
+*.log
+*.json
+*.xml
+*.csv
+*.html
+
+# Auth tokens
+*.token
+.env
+secrets.txt
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+venv/
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Burp
+*.burp
+
+# Tools output
+nmap_*.txt
+nuclei_*.txt
+subfinder_*.txt
