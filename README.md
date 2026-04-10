@@ -1,3 +1,22 @@
+
+## Local Dashboard
+
+After installation, launch the platform with:
+
+```bash
+zwanski start
+```
+
+Then open:
+
+```bash
+http://localhost:1337
+```
+
+Use the AI assistant tab to grade findings, summarize impact, and inspect tool health.
+
+The platform uses OpenRouter by default. In Settings, you can also override the API URL to any compatible chat completion endpoint and provide your own API key.
+
 # zwanski Bug Bounty Methodology
 > *By Mohamed Ibrahim (zwanski) — Bug Bounty Switzerland · HackerOne · Bugcrowd*
 

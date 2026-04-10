@@ -6,6 +6,7 @@ targets/
 *.xml
 *.csv
 *.html
+!ui/*.html
 
 # Auth tokens
 *.token

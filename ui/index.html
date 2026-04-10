@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ZWANSKI Bug Bounty Platform</title>
+<style>
+:root{--bg:#050608;--bg2:#0f1319;--bg3:#151b23;--border:#222a34;--text:#e5e9f0;--muted:#7f8fa4;--green:#10b981;--cyan:#38bdf8;--orange:#f59e0b;--red:#ef4444}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--text)}
+.app{display:grid;grid-template-columns:240px 1fr;min-height:100vh}
+.sidebar{background:var(--bg2);border-right:1px solid var(--border);padding:18px;display:flex;flex-direction:column;gap:16px}
+.logo{font-size:18px;font-weight:800;letter-spacing:-0.03em;color:#fff}
+.nav-item{padding:12px 14px;border-radius:12px;cursor:pointer;color:var(--muted);display:flex;align-items:center;gap:10px;transition:background .2s,color .2s}
+.nav-item.active, .nav-item:hover{background:rgba(56,189,248,.1);color:#fff}
+.main{padding:20px;overflow:auto}
+.header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:22px}
+.header h1{font-size:24px;margin:0}
+.card{background:var(--bg3);border:1px solid var(--border);border-radius:18px;padding:20px;margin-bottom:18px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}
+.metric{padding:18px;background:var(--bg3);border:1px solid var(--border);border-radius:16px}
+.metric strong{display:block;font-size:32px}
+.metric span{color:var(--muted)}
+.tool-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.tool{padding:14px;border:1px solid var(--border);border-radius:16px;background:var(--bg3)}
+.tool h3{margin:0 0 8px;font-size:14px}
+.tool p{margin:0;font-size:12px;color:var(--muted)}
+.badge{display:inline-flex;padding:4px 10px;border-radius:999px;font-size:11px;letter-spacing:.05em}
+.badge.installed{background:#052e18;color:var(--green)}
+.badge.missing{background:#221214;color:#f87171}
+textarea,input,button{font:inherit}
+textarea,input{width:100%;background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:12px;color:var(--text);resize:vertical}
+button{border:none;border-radius:14px;padding:12px 18px;background:var(--cyan);color:#000;cursor:pointer;transition:opacity .2s}
+button:hover{opacity:.9}
+.output{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:16px;white-space:pre-wrap;font-family:Menlo,monospace;font-size:13px;line-height:1.6;min-height:180px;overflow:auto}
+.section-title{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.section-title h2{font-size:18px;margin:0}
+.form-row{display:grid;gap:8px;margin-bottom:14px}
+.link-btn{color:var(--cyan);text-decoration:none}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="logo">ZWANSKI<span style="color:var(--cyan)">.BB</span></div>
+    <div class="nav-item active" data-tab="dashboard">Dashboard</div>
+    <div class="nav-item" data-tab="tools">Tools</div>
+    <div class="nav-item" data-tab="terminal">Terminal</div>
+    <div class="nav-item" data-tab="ai">AI Assistant</div>
+    <div class="nav-item" data-tab="settings">Settings</div>
+  </aside>
+  <main class="main">
+    <div class="header">
+      <div>
+        <h1>Bug Bounty Platform</h1>
+        <p style="color:var(--muted);margin:6px 0 0">Local UI + AI assistant + live tool status.</p>
+      </div>
+      <div>
+        <a class="link-btn" href="/" target="_blank">Open Dashboard</a>
+      </div>
+    </div>
+
+    <section id="dashboard" class="tab-panel">
+      <div class="grid">
+        <div class="metric"><strong id="toolCount">...</strong><span>Tools installed</span></div>
+        <div class="metric"><strong>1337</strong><span>Local dashboard port</span></div>
+        <div class="metric"><strong>OpenRouter</strong><span>AI integration</span></div>
+      </div>
+      <div class="card">
+        <div class="section-title"><h2>Quick start</h2></div>
+        <p>Use <code>zwanski start</code> to launch the platform. Then visit <strong>http://localhost:1337</strong></p>
+        <p>Use the AI assistant to grade findings, summarize impact, or generate report text.</p>
+      </div>
+      <div class="card">
+        <div class="section-title"><h2>AI grading</h2></div>
+        <div class="form-row">
+          <textarea id="gradeInput" rows="4" placeholder="Paste your finding description here..."></textarea>
+          <button onclick="gradeFinding()">Grade finding with AI</button>
+        </div>
+        <div class="output" id="gradeOutput">AI grade output appears here.</div>
+      </div>
+    </section>
+
+    <section id="tools" class="tab-panel" style="display:none">
+      <div class="card">
+        <div class="section-title"><h2>Installed tools</h2></div>
+        <div class="tool-list" id="toolList"></div>
+      </div>
+    </section>
+
+    <section id="terminal" class="tab-panel" style="display:none">
+      <div class="card">
+        <div class="section-title"><h2>Run a tool</h2></div>
+        <div class="form-row">
+          <input id="cmdInput" type="text" placeholder="e.g. httpx -l urls.txt -silent" />
+          <button onclick="runCommand()">Run</button>
+        </div>
+        <div class="output" id="cmdOutput">Command output appears here.</div>
+      </div>
+    </section>
+
+    <section id="ai" class="tab-panel" style="display:none">
+      <div class="card">
+        <div class="section-title"><h2>AI Assistant</h2></div>
+        <div class="form-row">
+          <textarea id="chatInput" rows="4" placeholder="Ask the AI about OAuth attacks, recon chains, or report wording."></textarea>
+          <button onclick="sendMessage()">Send</button>
+        </div>
+        <div class="output" id="chatOutput">Ask the AI a question and it will respond here.</div>
+      </div>
+    </section>
+
+    <section id="settings" class="tab-panel" style="display:none">
+      <div class="card">
+        <div class="section-title"><h2>Settings</h2></div>
+        <div class="form-row"><label>API key (OpenRouter or compatible endpoint)</label><input id="openrouterKey" placeholder="sk-..." /></div>
+        <div class="form-row"><label>API URL</label><input id="apiUrl" placeholder="https://openrouter.ai/api/v1/chat/completions" /></div>
+        <div class="form-row"><label>Model</label><input id="modelName" placeholder="google/gemini-flash-1.5" /></div>
+        <button onclick="saveSettings()">Save settings</button>
+        <p style="color:var(--muted);margin-top:12px">After saving, re-run the dashboard or refresh this page.</p>
+      </div>
+    </section>
+  </main>
+</div>
+<script>
+const tabs = document.querySelectorAll('.nav-item');
+const panels = document.querySelectorAll('.tab-panel');
+function showTab(name){
+  tabs.forEach(el => el.classList.toggle('active', el.dataset.tab===name));
+  panels.forEach(p => p.id===name ? p.style.display='block' : p.style.display='none');
+}
+tabs.forEach(el => el.addEventListener('click', ()=> showTab(el.dataset.tab)));
+showTab('dashboard');
+
+async function fetchTools(){
+  const res = await fetch('/api/tools');
+  const tools = await res.json();
+  document.getElementById('toolCount').textContent = tools.filter(t=>t.installed).length + '/' + tools.length;
+  const list = document.getElementById('toolList');
+  list.innerHTML = tools.map(t => `
+    <div class="tool">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><h3>${t.name}</h3><span class="badge ${t.installed?'installed':'missing'}">${t.installed?'installed':'missing'}</span></div>
+      <p>${t.description || 'Status available via CLI'}</p>
+    </div>
+  `).join('');
+}
+
+async function fetchConfig(){
+  const res = await fetch('/api/config');
+  const cfg = await res.json();
+  document.getElementById('openrouterKey').value = cfg.openrouter_key || '';
+  document.getElementById('apiUrl').value = cfg.api_url || 'https://openrouter.ai/api/v1/chat/completions';
+  document.getElementById('modelName').value = cfg.model || 'google/gemini-flash-1.5';
+}
+
+async function saveSettings(){
+  const key = document.getElementById('openrouterKey').value.trim();
+  const apiUrl = document.getElementById('apiUrl').value.trim() || 'https://openrouter.ai/api/v1/chat/completions';
+  const model = document.getElementById('modelName').value.trim();
+  const res = await fetch('/api/config', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({openrouter_key:key,api_url:apiUrl,model:model})});
+  const body = await res.json();
+  alert(body.ok ? 'Settings saved' : 'Failed to save settings');
+}
+
+async function runCommand(){
+  const cmd = document.getElementById('cmdInput').value.trim();
+  if(!cmd){return;}
+  const out = document.getElementById('cmdOutput');
+  out.textContent = 'Running...';
+  const res = await fetch('/api/run',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({cmd})});
+  const data = await res.json();
+  out.textContent = data.stdout || data.stderr || JSON.stringify(data, null, 2);
+}
+
+async function sendMessage(){
+  const text = document.getElementById('chatInput').value.trim();
+  if(!text){return;}
+  const out = document.getElementById('chatOutput');
+  out.textContent = 'Thinking...';
+  const res = await fetch('/api/ai/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:text}]})});
+  const data = await res.json();
+  out.textContent = data.message || data.error || JSON.stringify(data, null, 2);
+}
+
+async function gradeFinding(){
+  const finding = document.getElementById('gradeInput').value.trim();
+  if(!finding){return;}
+  const out = document.getElementById('gradeOutput');
+  out.textContent = 'Grading...';
+  const res = await fetch('/api/ai/grade',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({finding})});
+  const data = await res.json();
+  out.textContent = data.grade || data.error || JSON.stringify(data, null, 2);
+}
+
+fetchTools();
+fetchConfig();
+</script>
+</body>
+</html>
