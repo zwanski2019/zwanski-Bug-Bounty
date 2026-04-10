@@ -3,155 +3,302 @@
 ## Prerequisites
 
 - Python 3.8 or newer
-- pip (Python package installer)
-- Git (optional, for cloning the repo)
+- Git (for cloning the repo)
+- That's it! Everything else is automatic.
 
-## Installation (One Command)
+## Installation (Copy & Paste)
 
-### Option 1: Automated Setup Script
+### Ultra-Fast One-Liner
+
+Copy and paste this single command — everything else happens automatically:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/zwanski2019/zwanski-Bug-Bounty/main/setup.sh)
+git clone https://github.com/zwanski2019/zwanski-Bug-Bounty.git && cd zwanski-Bug-Bounty && bash setup.sh && ./oauth-mapper
 ```
 
-Or locally:
+The setup script will:
+1. Detect Python 3
+2. Create `.venv/` (isolated Python environment)
+3. Install dependencies into `.venv/`
+4. Create wrapper scripts (`./oauth-mapper`, `./subdomain-recon`)
+5. Launch the tool immediately
+
+### What Happens During Setup
+
+```
+✓ Checking Python 3.8+
+✓ Creating isolated virtual environment (.venv/)
+✓ Installing requests + urllib3
+✓ Making scripts executable
+✓ Creating convenience wrappers
+✓ Verifying installation
+✓ Ready to use!
+```
+
+The entire process takes **1-2 minutes** with zero user input needed.
+
+## Running the Tools
+
+After `bash setup.sh`, you have two convenience wrapper scripts:
+
+### OAuth Mapper
+
 ```bash
-cd zwanski-Bug-Bounty
+# Interactive menu (recommended for first-time users)
+./oauth-mapper
+
+# Or with target
+./oauth-mapper --target https://api.example.com
+
+# Or with output
+./oauth-mapper --target https://api.example.com --output findings.json
+```
+
+### Subdomain Reconnaissance
+
+```bash
+./subdomain-recon target.com
+./subdomain-recon target.com ./custom_output_dir
+```
+
+## Manual Virtual Environment Control
+
+If you need to manually manage the virtual environment:
+
+### Activate Virtual Environment
+```bash
+source .venv/bin/activate
+# or
+source activate.sh
+```
+
+Once activated, you can run scripts directly:
+```bash
+python3 scripts/zwanski-oauth-mapper.py --help
+python3 scripts/zwanski-oauth-mapper.py --menu
+```
+
+### Deactivate Virtual Environment
+```bash
+deactivate
+```
+
+### Delete Virtual Environment (Clean Uninstall)
+```bash
+rm -rf .venv/
+# Everything is cleaned up, repo files remain
+```
+
+## Supported Platforms
+
+| OS | Status | Notes |
+|---|--------|-------|
+| Linux (Ubuntu/Debian) | ✅ Fully supported | Most common |
+| Linux (RHEL/CentOS) | ✅ Fully supported | Install python3-venv if needed |
+| macOS | ✅ Fully supported | Install Python 3 from homebrew |
+| Windows 10+ | ✅ WSL recommended | Use Windows Subsystem for Linux |
+| Docker/Container | ✅ See DOCKER.md | No setup needed |
+
+### Platform-Specific Notes
+
+**Ubuntu/Debian:**
+```bash
+# If Python 3 not installed
+sudo apt-get update
+sudo apt-get install python3.11 python3.11-venv
+
+# Then run setup
 bash setup.sh
 ```
 
-### Option 2: Manual Installation
-
+**macOS:**
 ```bash
-# Clone the repository
-git clone https://github.com/zwanski2019/zwanski-Bug-Bounty.git
-cd zwanski-Bug-Bounty
+# If Python 3 not installed
+brew install python@3.11
 
-# Install dependencies
-pip3 install -r requirements.txt
-
-# Make scripts executable
-chmod +x scripts/*.sh scripts/*.py
-
-# Verify installation
-python3 scripts/zwanski-oauth-mapper.py --help
+# Then run setup
+bash setup.sh
 ```
 
-## Quick Usage
-
-### OAuth Mapper (Interactive)
-
+**CentOS/RHEL:**
 ```bash
-# Interactive guided menu (recommended for beginners)
-python3 scripts/zwanski-oauth-mapper.py
+sudo yum install python3 python3-venv
+
+# Then run setup
+bash setup.sh
 ```
 
-### OAuth Mapper (CLI)
-
+**Windows (WSL2 recommended):**
 ```bash
-# Full scan on a target
-python3 scripts/zwanski-oauth-mapper.py --target https://target.com
+# Install WSL2 first, then inside WSL:
+sudo apt-get update
+sudo apt-get install python3 git
 
-# Scan with authentication token
-python3 scripts/zwanski-oauth-mapper.py --target https://target.com --token YOUR_TOKEN
-
-# Export findings to JSON
-python3 scripts/zwanski-oauth-mapper.py --target https://target.com --output findings.json
+# Then run setup
+bash setup.sh
 ```
 
-### Subdomain Chain Recon
+## Optional: Install External Recon Tools
+
+If you want the advanced recon tools (subfinder, httpx, nuclei, etc.):
 
 ```bash
-# Run full recon pipeline
-bash scripts/zwanski-subdomain-chain.sh target.com
-
-# With custom output directory
-bash scripts/zwanski-subdomain-chain.sh target.com ./custom_output_dir
+# Requires Go 1.16+ installed
+bash setup-tools.sh
 ```
+
+This installs Go-based tools for the subdomain chain script. If you don't run this, the subdomain script will have limited functionality but OAuth mapper works 100%.
 
 ## Verification
 
 After installation, verify everything works:
 
 ```bash
-cd zwanski-Bug-Bounty/scripts
+# Show help
+./oauth-mapper --help
 
-# Check OAuth mapper
-python3 zwanski-oauth-mapper.py --menu
+# Run interactive menu (no target needed)
+./oauth-mapper --menu
 
-# Check subdomain script (requires subfinder, amass, etc.)
-bash zwanski-subdomain-chain.sh --help
+# Or just run it
+./oauth-mapper
 ```
 
-## Supported Tools
+## Directory Structure After Setup
 
-### Built-in
-- **OAuth Mapper**: OAuth/OIDC attack surface discovery
-- **Subdomain Chain**: Full passive + active recon pipeline
-
-### External Dependencies (for subdomain recon)
-
-The subdomain chain script requires:
-- `subfinder` - passive subdomain finder
-- `assetfinder` - source asset discovery
-- `puredns` - DNS resolution and wildcard detection
-- `httpx` - HTTP probing
-- `nuclei` - vulnerability scanning
-- `anew` - unique line management
-- `curl` - HTTP requests (usually pre-installed)
-- `jq` - JSON parsing
-- `dnsx` - DNS tool (fallback)
-
-Install with:
-```bash
-go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
-go install -v github.com/tomnomnom/assetfinder@latest
-go install -v github.com/d3mondev/puredns@latest
-go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
-go install -v github.com/projectdiscovery/nuclei/v2/cmd/nuclei@latest
-go install -v github.com/tomnomnom/anew@latest
-go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest
+```
+zwanski-Bug-Bounty/
+├── .venv/                          ← Isolated Python environment (created by setup.sh)
+├── oauth-mapper                    ← Wrapper script (created by setup.sh)
+├── subdomain-recon                 ← Wrapper script (created by setup.sh)
+├── activate.sh                     ← Helper to activate venv
+├── setup.sh                        ← Main installer
+├── setup-tools.sh                  ← Optional Go tools installer
+├── requirements.txt                ← Python dependencies
+├── Dockerfile & docker-compose.yml ← Container deployment
+├── scripts/
+│   ├── zwanski-oauth-mapper.py
+│   └── zwanski-subdomain-chain.sh
+├── INSTALL.md (this file)
+├── QUICKSTART.md
+├── PRODUCTION.md
+└── [other folders]
 ```
 
 ## Troubleshooting
 
-### "ModuleNotFoundError: No module named 'requests'"
+### "Python 3 not found"
+
+**Error:** `bash: python3: command not found`
+
+**Solution:**
+```bash
+# Ubuntu/Debian
+sudo apt-get install python3.11
+
+# macOS
+brew install python@3.11
+
+# CentOS/RHEL
+sudo yum install python3
+```
+
+### "Module not found" after setup
+
+**Error:** `ModuleNotFoundError: No module named 'requests'`
+
+**Solution:**
+```bash
+# Re-run setup to install in venv
+bash setup.sh
+```
+
+### "Permission denied" on wrapper scripts
+
+**Error:** `bash: ./oauth-mapper: Permission denied`
+
+**Solution:**
+```bash
+chmod +x ./oauth-mapper ./subdomain-recon
+```
+
+(This is done automatically by setup.sh, but in case it missed):
+
+### Virtual environment activation issues
+
+**Error:** `source: file not found`
+
+**Solution:**
+```bash
+# Ensure you're in the repo directory
+cd zwanski-Bug-Bounty
+
+# Activate venv
+source .venv/bin/activate
+
+# Or use the helper
+bash activate.sh
+```
+
+### Docker issues
+
+For container-based setup with zero Python dependency issues, see [DOCKER.md](DOCKER.md):
 
 ```bash
-pip3 install requests
+docker-compose build
+docker-compose run --rm zwanski-oauth-mapper
 ```
 
-### "Permission denied" on scripts
+### Custom Python Version
+
+If you have multiple Python versions installed:
 
 ```bash
-chmod +x scripts/*.sh scripts/*.py
+# Specify which python to use
+/usr/bin/python3.11 -m venv .venv
+bash setup.sh
 ```
 
-### "Command not found" for external tools
+## Uninstall / Clean Up
 
-Ensure Go tools are in your `$PATH`:
+To completely remove the toolkit:
+
 ```bash
-export PATH=$PATH:$(go env GOPATH)/bin
-echo 'export PATH=$PATH:$(go env GOPATH)/bin' >> ~/.bashrc
+# Remove just the virtual environment (keeps repo)
+rm -rf .venv/
+
+# Or remove everything
+cd ../
+rm -rf zwanski-Bug-Bounty/
 ```
 
-## Directory Structure
+## Getting Help
 
-```
-zwanski-Bug-Bounty/
-├── scripts/
-│   ├── zwanski-oauth-mapper.py      # OAuth/OIDC attack surface mapper
-│   └── zwanski-subdomain-chain.sh   # Full reconnaissance pipeline
-├── requirements.txt                  # Python dependencies
-├── setup.sh                          # Automated installation script
-└── INSTALL.md                        # This file
-```
+If something goes wrong:
 
-## Support
+1. Check [QUICKSTART.md](QUICKSTART.md) for common issues
+2. Check [PRODUCTION.md](PRODUCTION.md) for advanced troubleshooting
+3. See [DOCKER.md](DOCKER.md) if setup issues persist
+4. Open an issue: https://github.com/zwanski2019/zwanski-Bug-Bounty/issues
 
-For issues or feature requests, visit:
-https://github.com/zwanski2019/zwanski-Bug-Bounty
+## Next Steps
 
-## License
+After successful setup:
 
-See LICENSE file in the repository.
+1. **Quick test:**
+   ```bash
+   ./oauth-mapper --menu
+   ```
+
+2. **Scan a target:**
+   ```bash
+   ./oauth-mapper --target https://target.com
+   ```
+
+3. **Read full docs:**
+   - [QUICKSTART.md](QUICKSTART.md) — 2-minute guide
+   - [PRODUCTION.md](PRODUCTION.md) — Full reference
+
+---
+
+**You're all set!** type `./oauth-mapper` and start hunting. 🎯

@@ -25,20 +25,36 @@ This toolkit is now **fully production-ready** with multiple installation and de
 
 ## 🚀 Installation (Choose One)
 
-### 1. **Quickest** — One Command Setup (Recommended)
+### 1. **Quickest** — Copy & Paste One Command (Recommended)
+
+```bash
+git clone https://github.com/zwanski2019/zwanski-Bug-Bounty.git && cd zwanski-Bug-Bounty && bash setup.sh && ./oauth-mapper
+```
+
+**What it does:**
+- Creates isolated Python environment (`.venv/`)
+- Installs dependencies into the environment
+- Creates wrapper scripts (`./oauth-mapper`, `./subdomain-recon`)
+- Launches the tool
+- Takes **1-2 minutes**
+
+After this, you have:
+```bash
+./oauth-mapper              # Run OAuth mapper
+./subdomain-recon target.com  # Run subdomain recon
+source activate.sh          # Activate venv manually
+```
+
+### 2. **Step by Step** (If You Prefer)
 
 ```bash
 git clone https://github.com/zwanski2019/zwanski-Bug-Bounty.git
 cd zwanski-Bug-Bounty
 bash setup.sh
+./oauth-mapper
 ```
 
-Then run:
-```bash
-python3 scripts/zwanski-oauth-mapper.py
-```
-
-### 2. **Docker** — No dependencies, container-based
+### 3. **Docker** — No dependencies, fully containerized
 
 ```bash
 git clone https://github.com/zwanski2019/zwanski-Bug-Bounty.git
@@ -47,12 +63,14 @@ docker-compose build
 docker-compose run --rm zwanski-oauth-mapper
 ```
 
-### 3. **Manual** — Full control
+### 4. **Manual** — Full control (Advanced)
 
 ```bash
 git clone https://github.com/zwanski2019/zwanski-Bug-Bounty.git
 cd zwanski-Bug-Bounty
-pip3 install -r requirements.txt
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 chmod +x scripts/*.sh scripts/*.py
 python3 scripts/zwanski-oauth-mapper.py
 ```

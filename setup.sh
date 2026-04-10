@@ -1,6 +1,6 @@
 #!/bin/bash
-# zwanski-Bug-Bounty — Automated Installation & Setup Script
-# Installs all dependencies and configures the toolkit for first use.
+# zwanski-Bug-Bounty — Automated Installation & Setup Script with Virtual Environment
+# Creates isolated Python environment and installs all dependencies for first use.
 
 set -e
 
@@ -20,7 +20,7 @@ err() { echo -e "${RED}[-]${NC} $1"; exit 1; }
 # ─────────────────────────────────────────────
 echo ""
 echo "╔════════════════════════════════════════════════════════════════╗"
-echo "║        zwanski-Bug-Bounty Installation & Setup Script         ║"
+echo "║   zwanski-Bug-Bounty Installation & Setup with Virtual Env    ║"
 echo "╚════════════════════════════════════════════════════════════════╝"
 echo ""
 
@@ -36,31 +36,48 @@ PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}')
 info "Found Python $PYTHON_VERSION"
 
 # ─────────────────────────────────────────────
-# Check pip
-# ─────────────────────────────────────────────
-info "Checking pip..."
-if ! command -v pip3 &> /dev/null; then
-    err "pip3 is not installed. Please install pip3."
-fi
-log "pip3 is available"
-
-# ─────────────────────────────────────────────
 # Determine script directory
 # ─────────────────────────────────────────────
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+VENV_DIR="$SCRIPT_DIR/.venv"
 info "Installation directory: $SCRIPT_DIR"
 
 # ─────────────────────────────────────────────
-# Install Python dependencies
+# Create Virtual Environment
 # ─────────────────────────────────────────────
-info "Installing Python dependencies..."
+info "Creating Python virtual environment..."
+if [[ -d "$VENV_DIR" ]]; then
+    warn "Virtual environment already exists at $VENV_DIR"
+else
+    python3 -m venv "$VENV_DIR" || err "Failed to create virtual environment"
+    log "Virtual environment created at $VENV_DIR"
+fi
+
+# ─────────────────────────────────────────────
+# Activate virtual environment
+# ─────────────────────────────────────────────
+info "Activating virtual environment..."
+source "$VENV_DIR/bin/activate" || err "Failed to activate virtual environment"
+log "Virtual environment activated"
+
+# ─────────────────────────────────────────────
+# Upgrade pip in venv
+# ─────────────────────────────────────────────
+info "Upgrading pip in virtual environment..."
+pip install --upgrade pip --quiet 2>/dev/null || warn "Could not upgrade pip (may be ok)"
+log "pip is up to date"
+
+# ─────────────────────────────────────────────
+# Install Python dependencies in venv
+# ─────────────────────────────────────────────
+info "Installing Python dependencies in virtual environment..."
 if [[ -f "$SCRIPT_DIR/requirements.txt" ]]; then
-    pip3 install -r "$SCRIPT_DIR/requirements.txt" --quiet
-    log "Python dependencies installed"
+    pip install -r "$SCRIPT_DIR/requirements.txt" --quiet
+    log "Python dependencies installed in venv"
 else
     warn "requirements.txt not found — installing requests manually"
-    pip3 install requests urllib3 --quiet
-    log "Essential packages installed"
+    pip install requests urllib3 --quiet
+    log "Essential packages installed in venv"
 fi
 
 # ─────────────────────────────────────────────
@@ -74,6 +91,30 @@ if [[ -d "$SCRIPT_DIR/scripts" ]]; then
 else
     warn "scripts/ directory not found"
 fi
+
+# ─────────────────────────────────────────────
+# Create convenience wrapper scripts
+# ─────────────────────────────────────────────
+info "Creating convenience wrapper scripts..."
+
+# OAuth mapper wrapper
+cat > "$SCRIPT_DIR/oauth-mapper" << 'EOF'
+#!/bin/bash
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "$SCRIPT_DIR/.venv/bin/activate"
+python3 "$SCRIPT_DIR/scripts/zwanski-oauth-mapper.py" "$@"
+EOF
+chmod +x "$SCRIPT_DIR/oauth-mapper"
+log "Created: ./oauth-mapper"
+
+# Subdomain chain wrapper
+cat > "$SCRIPT_DIR/subdomain-recon" << 'EOF'
+#!/bin/bash
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+bash "$SCRIPT_DIR/scripts/zwanski-subdomain-chain.sh" "$@"
+EOF
+chmod +x "$SCRIPT_DIR/subdomain-recon"
+log "Created: ./subdomain-recon"
 
 # ─────────────────────────────────────────────
 # Verify installation
@@ -103,25 +144,29 @@ fi
 # ─────────────────────────────────────────────
 echo ""
 echo "╔════════════════════════════════════════════════════════════════╗"
-echo "║                  Installation Complete!                        ║"
+echo "║              Installation Complete! ✅                         ║"
 echo "╚════════════════════════════════════════════════════════════════╝"
 echo ""
-echo "Next steps:"
+echo "Virtual environment created at: $VENV_DIR"
+echo "All dependencies installed in isolated environment."
+echo ""
+echo "Quick start commands:"
 echo ""
 echo "1. OAuth Mapper (Interactive):"
-echo "   python3 $OAUTH_MAPPER"
+echo "   ./oauth-mapper"
 echo ""
-echo "2. OAuth Mapper (CLI):"
-echo "   python3 $OAUTH_MAPPER --target https://target.com"
+echo "2. OAuth Mapper (with target):"
+echo "   ./oauth-mapper --target https://target.com"
 echo ""
 echo "3. Subdomain Recon:"
-echo "   bash $SUBDOMAIN_CHAIN target.com"
+echo "   ./subdomain-recon target.com"
 echo ""
-echo "For detailed usage, run:"
-echo "   python3 $OAUTH_MAPPER --help"
+echo "Advanced usage:"
+echo "   source .venv/bin/activate    # Activate venv manually"
+echo "   python3 scripts/zwanski-oauth-mapper.py --help"
 echo ""
 echo "Optional: Install external recon tools"
-echo "   bash setup-tools.sh  (if available)"
+echo "   bash setup-tools.sh"
 echo ""
 info "Setup complete. You're ready to go!"
 echo ""
