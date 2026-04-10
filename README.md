@@ -184,11 +184,14 @@ Start using the tools immediately:
 
 ## 📸 Demo / Proof of Concept
 
-![Demo](assets/screenshot.png)
-
-[![Watch Demo](assets/screenshot.png)](assets/demo.webm)
-
-A short walkthrough of the local ZWANSKI dashboard and AI-assisted workflow, including tool status, terminal execution, and findings grading.
+<figure>
+  <video controls poster="assets/screenshot.png" width="720">
+    <source src="assets/demo.webm" type="video/webm">
+    Your browser does not support HTML5 video. You can still view the demo file directly:
+    <a href="assets/demo.webm">Download demo.webm</a>
+  </video>
+  <figcaption>A short walkthrough of the local ZWANSKI dashboard and AI-assisted workflow, including tool status, terminal execution, and findings grading.</figcaption>
+</figure>
 
 ---
 
