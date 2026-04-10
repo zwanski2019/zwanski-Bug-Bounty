@@ -13,6 +13,7 @@ from pathlib import Path
 
 from flask import Flask, Response, jsonify, request, send_from_directory
 from flask_cors import CORS
+from flask_socketio import SocketIO, emit
 import requests
 
 ROOT = Path(__file__).resolve().parent
@@ -32,6 +33,7 @@ ALLOWED_TOOLS = [
 
 app = Flask(__name__, static_folder=str(UI_DIR))
 CORS(app)
+socketio = SocketIO(app, cors_allowed_origins="*")
 
 
 def load_config():
@@ -207,6 +209,52 @@ def api_run():
         return jsonify({"error": str(exc)})
 
 
+@socketio.on('connect')
+def handle_connect():
+    emit('status', {'message': 'Connected to ZWANSKI Dashboard'})
+
+@socketio.on('run_command')
+def handle_run_command(data):
+    command = data.get('command', '')
+    if not command:
+        return
+    first = command.split()[0]
+    if first not in ALLOWED_TOOLS:
+        emit('terminal_output', {'output': f"Error: Tool '{first}' is not allowed.\n"})
+        return
+    def run_cmd():
+        try:
+            proc = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            for line in iter(proc.stdout.readline, ''):
+                socketio.emit('terminal_output', {'output': line})
+            for line in iter(proc.stderr.readline, ''):
+                socketio.emit('terminal_output', {'output': line})
+            proc.wait()
+            socketio.emit('terminal_output', {'output': f"Command finished with code {proc.returncode}\n"})
+        except Exception as e:
+            socketio.emit('terminal_output', {'output': f"Error: {str(e)}\n"})
+    threading.Thread(target=run_cmd, daemon=True).start()
+
+@socketio.on('ai_chat')
+def handle_ai_chat(data):
+    config = load_config()
+    key = config.get("openrouter_key", "")
+    if not key:
+        emit('ai_response', {'error': 'API key not set'})
+        return
+    messages = data.get('messages', [])
+    model = data.get('model', config.get('model'))
+    api_url = config.get('api_url', DEFAULT_API_URL)
+    payload = {"model": model, "messages": messages, "temperature": 0.2, "max_tokens": 600}
+    try:
+        r = requests.post(api_url, headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"}, json=payload, timeout=45)
+        r.raise_for_status()
+        content = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+        emit('ai_response', {'response': content})
+    except Exception as e:
+        emit('ai_response', {'error': str(e)})
+
+
 def open_browser(port):
     url = f"http://localhost:{port}"
     try:
@@ -219,4 +267,4 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 1337))
     threading.Timer(1.2, lambda: open_browser(port)).start()
     print(f"Starting ZWANSKI dashboard on http://localhost:{port}")
-    app.run(host="0.0.0.0", port=port, debug=False)
+    socketio.run(app, host="0.0.0.0", port=port, debug=False)

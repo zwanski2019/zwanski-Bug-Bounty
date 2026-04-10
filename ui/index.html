@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>ZWANSKI Bug Bounty Platform</title>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 <style>
 :root{--bg:#050608;--bg2:#0f1319;--bg3:#151b23;--border:#222a34;--text:#e5e9f0;--muted:#7f8fa4;--green:#10b981;--cyan:#38bdf8;--orange:#f59e0b;--red:#ef4444}
 *{box-sizing:border-box}
@@ -194,6 +195,38 @@ async function gradeFinding(){
 
 fetchTools();
 fetchConfig();
-</script>
+
+const socket = io();
+
+socket.on('status', function(data) {
+  console.log(data.message);
+});
+
+socket.on('terminal_output', function(data) {
+  const term = document.getElementById('terminalOutput');
+  term.textContent += data.output;
+  term.scrollTop = term.scrollHeight;
+});
+
+socket.on('ai_response', function(data) {
+  const out = document.getElementById('aiOutput');
+  out.textContent = data.response || data.error;
+});
+
+async function runCommand(){
+  const cmd = document.getElementById('cmdInput').value.trim();
+  if(!cmd){return;}
+  socket.emit('run_command', {command: cmd});
+  document.getElementById('cmdInput').value = '';
+}
+
+async function aiChat(){
+  const text = document.getElementById('aiInput').value.trim();
+  if(!text){return;}
+  const out = document.getElementById('aiOutput');
+  out.textContent = 'Thinking...';
+  socket.emit('ai_chat', {messages: [{role: 'user', content: text}]});
+  document.getElementById('aiInput').value = '';
+}
 </body>
 </html>
