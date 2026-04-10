@@ -93,19 +93,54 @@ You submitted a payload and nothing happened? Good. Come back tomorrow after the
 
 ---
 
-## Quick Start
+## ⚡ Quick Start (One Command)
+
+### Copy & Paste — Everything Automated
+
+Just like Ollama, install and start using in one command:
 
 ```bash
-# Clone and set up
-git clone https://github.com/zwanski2019/zwanski-Bug-Bounty.git
-cd zwanski-Bug-Bounty
-chmod +x scripts/*.sh scripts/*.py
-
-# Start a new target
-cp -r templates/target-workspace ~/bounty/targets/TARGET_NAME
-cd ~/bounty/targets/TARGET_NAME
-# Fill in scope, then begin Phase 01
+bash <(curl -fsSL https://raw.githubusercontent.com/zwanski2019/zwanski-Bug-Bounty/main/install.sh)
 ```
+
+That's it! The script will:
+1. ✅ Clone the repository (or update if exists)
+2. ✅ Create isolated Python environment
+3. ✅ Install all dependencies
+4. ✅ Create convenient wrappers
+5. ✅ You're ready to use immediately
+
+### Or Run Locally
+
+```bash
+# Download installer
+curl -fsSL https://raw.githubusercontent.com/zwanski2019/zwanski-Bug-Bounty/main/install.sh -o install.sh
+
+# Run it
+bash install.sh
+```
+
+### After Installation
+
+Start using the tools immediately:
+
+```bash
+# OAuth/OIDC testing (interactive menu)
+./oauth-mapper
+
+# Or with a target
+./oauth-mapper --target https://api.example.com
+
+# Subdomain reconnaissance
+./subdomain-recon example.com
+```
+
+### Full Documentation
+
+- **[QUICKSTART.md](QUICKSTART.md)** — 2-minute guide
+- **[INSTALL.md](INSTALL.md)** — Detailed setup & troubleshooting  
+- **[PRODUCTION.md](PRODUCTION.md)** — Full production deployment
+- **[DOCKER.md](DOCKER.md)** — Container-based setup
 
 ---
 
