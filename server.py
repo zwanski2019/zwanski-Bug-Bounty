@@ -18,7 +18,7 @@ import requests
 ROOT = Path(__file__).resolve().parent
 UI_DIR = ROOT / "ui"
 CONFIG_FILE = ROOT / "config.json"
-DEFAULT_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+DEFAULT_API_URL = "https://api.openrouter.ai/api/v1/chat/completions"
 
 ALLOWED_TOOLS = [
     "subfinder", "amass", "assetfinder", "dnsx", "puredns", "alterx", "chaos",
