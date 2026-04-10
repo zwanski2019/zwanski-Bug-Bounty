@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>zwanski-Bug-Bounty · Recon Toolkit</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #080c10;
+      --surface: #0d1117;
+      --border: #1a2332;
+      --accent: #00ff9d;
+      --accent2: #0ea5e9;
+      --danger: #ff3c5c;
+      --text: #c9d1d9;
+      --muted: #556170;
+      --mono: 'Share Tech Mono', monospace;
+      --sans: 'Syne', sans-serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      overflow-x: hidden;
+    }
+
+    /* GRID NOISE BG */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(0,255,157,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,255,157,0.03) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* NAV */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem 2rem;
+      background: rgba(8,12,16,0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-logo {
+      font-family: var(--mono);
+      color: var(--accent);
+      font-size: 1rem;
+      letter-spacing: 2px;
+      text-decoration: none;
+    }
+
+    .nav-logo span { color: var(--muted); }
+
+    .nav-links {
+      display: flex;
+      gap: 2rem;
+      list-style: none;
+    }
+
+    .nav-links a {
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      color: var(--muted);
+      text-decoration: none;
+      letter-spacing: 1px;
+      transition: color 0.2s;
+    }
+
+    .nav-links a:hover { color: var(--accent); }
+
+    .nav-gh {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: var(--bg);
+      background: var(--accent);
+      padding: 0.4rem 1rem;
+      border-radius: 2px;
+      text-decoration: none;
+      font-weight: 700;
+      letter-spacing: 1px;
+      transition: opacity 0.2s;
+    }
+
+    .nav-gh:hover { opacity: 0.8; }
+
+    /* HERO */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 8rem 2rem 4rem;
+      max-width: 1100px;
+      margin: 0 auto;
+      position: relative;
+      z-index: 1;
+    }
+
+    .hero-badge {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      color: var(--accent);
+      letter-spacing: 3px;
+      margin-bottom: 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .hero-badge::before {
+      content: '';
+      width: 24px;
+      height: 1px;
+      background: var(--accent);
+    }
+
+    .hero h1 {
+      font-family: var(--sans);
+      font-size: clamp(2.5rem, 7vw, 5.5rem);
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: -2px;
+      margin-bottom: 1.5rem;
+    }
+
+    .hero h1 .line1 { color: #fff; }
+    .hero h1 .line2 {
+      color: transparent;
+      -webkit-text-stroke: 1px var(--accent);
+    }
+
+    .hero-desc {
+      font-family: var(--mono);
+      font-size: 0.95rem;
+      color: var(--muted);
+      max-width: 560px;
+      line-height: 1.8;
+      margin-bottom: 2.5rem;
+    }
+
+    .hero-desc .hl { color: var(--accent2); }
+
+    .hero-actions {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .btn-primary {
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      color: var(--bg);
+      background: var(--accent);
+      padding: 0.75rem 1.75rem;
+      border-radius: 2px;
+      text-decoration: none;
+      letter-spacing: 1px;
+      font-weight: 700;
+      transition: transform 0.15s, box-shadow 0.15s;
+      box-shadow: 0 0 0 0 rgba(0,255,157,0.4);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 0 20px rgba(0,255,157,0.3);
+    }
+
+    .btn-secondary {
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      color: var(--accent);
+      background: transparent;
+      padding: 0.75rem 1.75rem;
+      border: 1px solid var(--accent);
+      border-radius: 2px;
+      text-decoration: none;
+      letter-spacing: 1px;
+      transition: background 0.15s;
+    }
+
+    .btn-secondary:hover { background: rgba(0,255,157,0.08); }
+
+    /* STATS BAR */
+    .stats-bar {
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      padding: 1.5rem 2rem;
+      position: relative;
+      z-index: 1;
+    }
+
+    .stats-inner {
+      max-width: 1100px;
+      margin: 0 auto;
+      display: flex;
+      gap: 3rem;
+      flex-wrap: wrap;
+    }
+
+    .stat {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .stat-val {
+      font-family: var(--mono);
+      font-size: 1.4rem;
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    .stat-label {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      color: var(--muted);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+
+    /* SECTIONS */
+    section {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 5rem 2rem;
+      position: relative;
+      z-index: 1;
+    }
+
+    .section-tag {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      color: var(--accent);
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      margin-bottom: 0.75rem;
+    }
+
+    .section-title {
+      font-size: clamp(1.6rem, 3vw, 2.4rem);
+      font-weight: 800;
+      color: #fff;
+      margin-bottom: 1rem;
+      letter-spacing: -1px;
+    }
+
+    .section-sub {
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      color: var(--muted);
+      max-width: 600px;
+      line-height: 1.8;
+      margin-bottom: 3rem;
+    }
+
+    /* TOOL CARDS */
+    .tools-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .tool-card {
+      background: var(--surface);
+      padding: 1.75rem;
+      transition: background 0.2s;
+      cursor: default;
+    }
+
+    .tool-card:hover { background: #111820; }
+
+    .tool-icon {
+      font-family: var(--mono);
+      font-size: 1.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .tool-name {
+      font-family: var(--mono);
+      font-size: 0.9rem;
+      color: var(--accent);
+      margin-bottom: 0.5rem;
+      letter-spacing: 1px;
+    }
+
+    .tool-desc {
+      font-size: 0.82rem;
+      color: var(--muted);
+      line-height: 1.7;
+      font-family: var(--mono);
+    }
+
+    .tool-tag {
+      display: inline-block;
+      margin-top: 0.75rem;
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      padding: 0.2rem 0.6rem;
+      border-radius: 2px;
+      letter-spacing: 1px;
+    }
+
+    .tag-recon { background: rgba(14,165,233,0.15); color: var(--accent2); }
+    .tag-exploit { background: rgba(255,60,92,0.12); color: var(--danger); }
+    .tag-report { background: rgba(0,255,157,0.1); color: var(--accent); }
+    .tag-enum { background: rgba(168,85,247,0.12); color: #c084fc; }
+
+    /* DOCS / PHASES */
+    .phases {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .phase {
+      background: var(--surface);
+      padding: 0;
+      overflow: hidden;
+    }
+
+    .phase-header {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 1.25rem 1.75rem;
+      cursor: pointer;
+      transition: background 0.2s;
+      user-select: none;
+    }
+
+    .phase-header:hover { background: #111820; }
+
+    .phase-num {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      color: var(--muted);
+      width: 28px;
+    }
+
+    .phase-title {
+      font-family: var(--mono);
+      font-size: 0.9rem;
+      color: #fff;
+      flex: 1;
+    }
+
+    .phase-chevron {
+      font-family: var(--mono);
+      color: var(--muted);
+      font-size: 0.8rem;
+      transition: transform 0.2s;
+    }
+
+    .phase.open .phase-chevron { transform: rotate(90deg); color: var(--accent); }
+
+    .phase-body {
+      display: none;
+      padding: 0 1.75rem 1.75rem 3.75rem;
+      border-top: 1px solid var(--border);
+    }
+
+    .phase.open .phase-body { display: block; }
+
+    .phase-body pre {
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      color: var(--accent2);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 1rem 1.25rem;
+      overflow-x: auto;
+      line-height: 1.7;
+      margin-top: 1rem;
+    }
+
+    .phase-body p {
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      color: var(--muted);
+      line-height: 1.8;
+      margin-top: 0.75rem;
+    }
+
+    /* INSTALL */
+    .install-block {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .install-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.6rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
+    }
+
+    .install-bar span {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      color: var(--muted);
+      letter-spacing: 1px;
+    }
+
+    .copy-btn {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      color: var(--accent);
+      background: none;
+      border: 1px solid var(--border);
+      padding: 0.2rem 0.6rem;
+      border-radius: 2px;
+      cursor: pointer;
+      letter-spacing: 1px;
+      transition: background 0.15s;
+    }
+
+    .copy-btn:hover { background: rgba(0,255,157,0.1); }
+
+    .install-block pre {
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      color: #e6edf3;
+      padding: 1.5rem;
+      overflow-x: auto;
+      line-height: 1.9;
+    }
+
+    .install-block pre .c { color: var(--muted); }
+    .install-block pre .cmd { color: var(--accent); }
+    .install-block pre .arg { color: var(--accent2); }
+
+    /* PROGRAMS TABLE */
+    .programs-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+    }
+
+    .programs-table th {
+      text-align: left;
+      padding: 0.75rem 1rem;
+      color: var(--muted);
+      letter-spacing: 2px;
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .programs-table td {
+      padding: 1rem;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    .programs-table tr:last-child td { border-bottom: none; }
+    .programs-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+    .status-dot {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      margin-right: 0.5rem;
+      vertical-align: middle;
+    }
+
+    .dot-active { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+    .dot-past { background: var(--muted); }
+
+    /* FOOTER */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 2rem;
+      position: relative;
+      z-index: 1;
+    }
+
+    .footer-inner {
+      max-width: 1100px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: gap;
+      gap: 1rem;
+    }
+
+    .footer-inner p {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+
+    .footer-inner a { color: var(--accent); text-decoration: none; }
+
+    /* DIVIDER */
+    .divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 0;
+    }
+
+    /* ANIM */
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+    .cursor {
+      display: inline-block;
+      width: 2px;
+      height: 1em;
+      background: var(--accent);
+      vertical-align: text-bottom;
+      animation: blink 1s step-end infinite;
+      margin-left: 2px;
+    }
+
+    @keyframes fadeUp {
+      from { opacity:0; transform: translateY(20px); }
+      to { opacity:1; transform: translateY(0); }
+    }
+
+    .hero > * {
+      animation: fadeUp 0.6s ease both;
+    }
+    .hero > *:nth-child(1) { animation-delay: 0.1s; }
+    .hero > *:nth-child(2) { animation-delay: 0.2s; }
+    .hero > *:nth-child(3) { animation-delay: 0.3s; }
+    .hero > *:nth-child(4) { animation-delay: 0.4s; }
+    .hero > *:nth-child(5) { animation-delay: 0.5s; }
+
+    /* MOBILE */
+    @media (max-width: 640px) {
+      .nav-links { display: none; }
+      .stats-inner { gap: 1.5rem; }
+      .hero { padding: 6rem 1.25rem 3rem; }
+      section { padding: 3rem 1.25rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="#" class="nav-logo">zwanski<span>/</span>Bug-Bounty</a>
+  <ul class="nav-links">
+    <li><a href="#tools">Tools</a></li>
+    <li><a href="#docs">Docs</a></li>
+    <li><a href="#install">Install</a></li>
+    <li><a href="#programs">Programs</a></li>
+  </ul>
+  <a href="https://github.com/zwanski2019/zwanski-Bug-Bounty" class="nav-gh" target="_blank">GitHub ↗</a>
+</nav>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-badge">RECON TOOLKIT · BY ZWANSKI2019</div>
+  <h1>
+    <div class="line1">Bug Bounty</div>
+    <div class="line2">Recon Kit<span class="cursor"></span></div>
+  </h1>
+  <p class="hero-desc">
+    Personal toolkit for <span class="hl">managed bug bounty programs</span> on Bugcrowd &amp; Bug Bounty Switzerland.<br>
+    Python automation · Shell pipelines · PoC templates · Scope parsers.
+  </p>
+  <div class="hero-actions">
+    <a href="#install" class="btn-primary">Get Started</a>
+    <a href="#docs" class="btn-secondary">Documentation</a>
+  </div>
+</div>
+
+<!-- STATS -->
+<div class="stats-bar">
+  <div class="stats-inner">
+    <div class="stat">
+      <span class="stat-val">60.9%</span>
+      <span class="stat-label">Python</span>
+    </div>
+    <div class="stat">
+      <span class="stat-val">39.1%</span>
+      <span class="stat-label">Shell</span>
+    </div>
+    <div class="stat">
+      <span class="stat-val">2+</span>
+      <span class="stat-label">Active Programs</span>
+    </div>
+    <div class="stat">
+      <span class="stat-val">Free</span>
+      <span class="stat-label">Open Source</span>
+    </div>
+  </div>
+</div>
+
+<!-- TOOLS -->
+<section id="tools">
+  <div class="section-tag">// 01 · Arsenal</div>
+  <h2 class="section-title">Toolkit Overview</h2>
+  <p class="section-sub">Scripts and templates organized by bug bounty phase — recon, enumeration, exploitation, and reporting.</p>
+
+  <div class="tools-grid">
+    <div class="tool-card">
+      <div class="tool-icon">🔍</div>
+      <div class="tool-name">bb_recon_tool.py</div>
+      <div class="tool-desc">Streamlit app that parses program scope and generates phase-by-phase command playbooks. Auto-generates ffuf, subfinder, and amass commands.</div>
+      <span class="tool-tag tag-recon">RECON</span>
+    </div>
+    <div class="tool-card">
+      <div class="tool-icon">🌐</div>
+      <div class="tool-name">Subdomain Pipelines</div>
+      <div class="tool-desc">Shell pipelines combining subfinder, amass, dnsx, and httpx to map attack surface. Outputs live_subdomains.txt with response codes.</div>
+      <span class="tool-tag tag-recon">RECON</span>
+    </div>
+    <div class="tool-card">
+      <div class="tool-icon">⚡</div>
+      <div class="tool-name">PoC Templates</div>
+      <div class="tool-desc">Minimal-impact proof-of-concept scripts for common vuln classes: OIDC redirect bypass, API key exposure, SSO misconfig, info disclosure.</div>
+      <span class="tool-tag tag-exploit">POC</span>
+    </div>
+    <div class="tool-card">
+      <div class="tool-icon">🔑</div>
+      <div class="tool-name">API Enumeration</div>
+      <div class="tool-desc">Endpoint discovery via ffuf, gau, waybackurls, and ParamSpider. JS link extraction with LinkFinder and SecretFinder.</div>
+      <span class="tool-tag tag-enum">ENUM</span>
+    </div>
+    <div class="tool-card">
+      <div class="tool-icon">📋</div>
+      <div class="tool-name">Report Templates</div>
+      <div class="tool-desc">Structured Bugcrowd/Bug Bounty Switzerland submission templates with CVSS scoring, impact narrative, and remediation guidance.</div>
+      <span class="tool-tag tag-report">REPORT</span>
+    </div>
+    <div class="tool-card">
+      <div class="tool-icon">🛡️</div>
+      <div class="tool-name">SSO / OAuth Toolkit</div>
+      <div class="tool-desc">Test cases for Keycloak misconfigs, OIDC redirect_uri bypass (double URL-encoding), PKCE downgrade, and Dynamic Client Registration.</div>
+      <span class="tool-tag tag-exploit">POC</span>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- DOCS -->
+<section id="docs">
+  <div class="section-tag">// 02 · Documentation</div>
+  <h2 class="section-title">Methodology</h2>
+  <p class="section-sub">Phase-by-phase workflow used across managed programs. Click each phase to expand commands.</p>
+
+  <div class="phases">
+
+    <div class="phase open">
+      <div class="phase-header" onclick="togglePhase(this)">
+        <span class="phase-num">01</span>
+        <span class="phase-title">Subdomain Reconnaissance</span>
+        <span class="phase-chevron">▶</span>
+      </div>
+      <div class="phase-body">
+        <p>Map the full subdomain surface before touching any application. Combine passive and active sources, then resolve and probe for live hosts.</p>
+        <pre>
+# Passive enumeration
+subfinder -d target.com -o subfinder_output.txt
+amass enum -passive -d target.com -o amass_subdomains.txt
+
+# Certificate transparency
+curl -s "https://crt.sh/?q=%.target.com&output=json" \
+  | jq -r '.[].name_value' | sort -u > ct.txt
+
+# Merge and resolve
+cat subfinder_output.txt amass_subdomains.txt ct.txt \
+  | sort -u | dnsx -silent -o live_subdomains.txt
+
+# Probe for live web
+httpx -l live_subdomains.txt -title -status-code -o all_subdomains.txt
+        </pre>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="phase-header" onclick="togglePhase(this)">
+        <span class="phase-num">02</span>
+        <span class="phase-title">API & Endpoint Discovery</span>
+        <span class="phase-chevron">▶</span>
+      </div>
+      <div class="phase-body">
+        <p>Extract endpoints from JavaScript files, Wayback Machine, and GAU. Use ffuf for directory brute-force against in-scope targets.</p>
+        <pre>
+# Historical URLs
+gau target.com | tee gau_urls.txt
+waybackurls target.com >> wayback_urls.txt
+
+# JS endpoint extraction
+cat js_urls.txt | while read url; do
+  python3 LinkFinder/linkfinder.py -i "$url" -o cli 2>/dev/null
+done | sort -u > api_endpoints.txt
+
+# Secret scanning in JS
+python3 SecretFinder/SecretFinder.py \
+  -i https://target.com/app.js -o cli
+
+# Directory fuzzing (in-scope only)
+ffuf -w SecLists/Discovery/Web-Content/api/api-endpoints.txt \
+  -u https://target.com/api/FUZZ \
+  -mc 200,201,301,302,401,403 -o ffuf_backup.json
+        </pre>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="phase-header" onclick="togglePhase(this)">
+        <span class="phase-num">03</span>
+        <span class="phase-title">SSO / OAuth Testing</span>
+        <span class="phase-chevron">▶</span>
+      </div>
+      <div class="phase-body">
+        <p>Test Keycloak, Okta, and custom SSO for common misconfigurations. Always include the program tracking header per program rules.</p>
+        <pre>
+# Keycloak realm enumeration
+curl -s https://sso.target.com/auth/realms/master \
+  -H "X-BUGBOUNTY: zwanski" | jq .
+
+# OIDC discovery
+curl -s https://sso.target.com/auth/realms/TARGET/.well-known/openid-configuration
+
+# redirect_uri bypass (double-encode)
+# Test: redirect_uri=https://attacker.com%2523@target.com/callback
+
+# Dynamic Client Registration probe
+curl -s -X POST https://sso.target.com/auth/realms/TARGET/clients-registrations/openid-connect \
+  -H "Content-Type: application/json" \
+  -d '{"redirect_uris":["https://attacker.com"]}'
+        </pre>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="phase-header" onclick="togglePhase(this)">
+        <span class="phase-num">04</span>
+        <span class="phase-title">PoC & Impact Demonstration</span>
+        <span class="phase-chevron">▶</span>
+      </div>
+      <div class="phase-body">
+        <p>Convert triaged findings into accepted submissions by demonstrating concrete, minimal-impact proof of concepts. No broad scanning — targeted validation only.</p>
+        <pre>
+# API key validation (minimal impact)
+curl -s -X GET "https://api.target.com/v1/me" \
+  -H "Authorization: Bearer EXPOSED_KEY" \
+  -H "X-BUGBOUNTY: zwanski" | jq '{id,email,role}'
+
+# Info disclosure — capture only non-sensitive fields
+curl -s https://target.com/api/serverinfo \
+  | jq '{version, environment, build_date}'
+
+# OIDC PoC — demonstrate token issuance without storing
+# See geneveid_real_attack_poc.sh for template
+        </pre>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="phase-header" onclick="togglePhase(this)">
+        <span class="phase-num">05</span>
+        <span class="phase-title">Report Writing</span>
+        <span class="phase-chevron">▶</span>
+      </div>
+      <div class="phase-body">
+        <p>Structured submission format for Bugcrowd and Bug Bounty Switzerland. Always include CVSS vector, reproduction steps, and concrete impact narrative.</p>
+        <pre>
+## Title
+[Component] - [Vulnerability Class]: [One-line impact]
+
+## CVSS
+Vector: CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N
+Score: 5.3 (Medium)
+
+## Steps to Reproduce
+1. Navigate to https://target.com/endpoint
+2. Observe response contains...
+3. curl command here
+
+## Impact
+An unauthenticated attacker can...
+
+## Remediation
+Restrict endpoint / rotate key / enforce auth...
+        </pre>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- INSTALL -->
+<section id="install">
+  <div class="section-tag">// 03 · Setup</div>
+  <h2 class="section-title">Installation</h2>
+  <p class="section-sub">Clone the repo and install dependencies. Tested on Kali Linux.</p>
+
+  <div class="install-block">
+    <div class="install-bar">
+      <span>BASH</span>
+      <button class="copy-btn" onclick="copyInstall()">COPY</button>
+    </div>
+    <pre id="install-code"><span class="c"># Clone the repository</span>
+<span class="cmd">git clone</span> <span class="arg">git@github.com:zwanski2019/zwanski-Bug-Bounty.git</span>
+<span class="cmd">cd</span> zwanski-Bug-Bounty
+
+<span class="c"># Python dependencies</span>
+<span class="cmd">pip install</span> <span class="arg">-r requirements.txt</span>
+
+<span class="c"># Run the recon toolkit (Streamlit)</span>
+<span class="cmd">streamlit run</span> <span class="arg">bb_recon_tool.py</span>
+
+<span class="c"># Make shell scripts executable</span>
+<span class="cmd">chmod +x</span> <span class="arg">*.sh</span>
+<span class="cmd">./verify_tools.sh</span>   <span class="c"># check tool availability</span>
+    </pre>
+  </div>
+
+  <div style="margin-top: 1.5rem;">
+    <div class="install-block">
+      <div class="install-bar">
+        <span>REQUIREMENTS</span>
+      </div>
+      <pre><span class="c"># Core recon tools (apt)</span>
+<span class="cmd">sudo apt install</span> <span class="arg">subfinder amass dnsx httpx ffuf nuclei nmap</span>
+
+<span class="c"># Go tools</span>
+<span class="cmd">go install</span> <span class="arg">github.com/lc/gau/v2/cmd/gau@latest</span>
+<span class="cmd">go install</span> <span class="arg">github.com/tomnomnom/waybackurls@latest</span>
+
+<span class="c"># Python tools</span>
+<span class="cmd">git clone</span> <span class="arg">https://github.com/GerbenJavado/LinkFinder</span>
+<span class="cmd">git clone</span> <span class="arg">https://github.com/m4ll0k/SecretFinder</span>
+      </pre>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- PROGRAMS -->
+<section id="programs">
+  <div class="section-tag">// 04 · Programs</div>
+  <h2 class="section-title">Active Programs</h2>
+  <p class="section-sub">Programs currently hunted under managed bug bounty platforms. Always add the program tracking header to every request.</p>
+
+  <div style="border:1px solid var(--border); border-radius:4px; overflow:hidden; background: var(--surface);">
+    <table class="programs-table">
+      <thead>
+        <tr>
+          <th>Program</th>
+          <th>Platform</th>
+          <th>Header</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>City of Vienna</td>
+          <td>Bugcrowd</td>
+          <td><code style="font-size:0.75rem;color:var(--accent2)">X-VIENNA-BUGBOUNTY: zwanski</code></td>
+          <td><span class="status-dot dot-active"></span>Active</td>
+        </tr>
+        <tr>
+          <td>Canton de Genève</td>
+          <td>Bug Bounty Switzerland</td>
+          <td><code style="font-size:0.75rem;color:var(--accent2)">X-GENEVA-BUGBOUNTY: zwanski</code></td>
+          <td><span class="status-dot dot-active"></span>Active</td>
+        </tr>
+        <tr>
+          <td>EWB (Energie Wasser Bern)</td>
+          <td>Bug Bounty Switzerland</td>
+          <td><code style="font-size:0.75rem;color:var(--accent2)">X-EWB-BUGBOUNTY: zwanski</code></td>
+          <td><span class="status-dot dot-active"></span>Active</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p style="font-family:var(--mono);font-size:0.75rem;color:var(--muted);margin-top:1rem;">
+    ⚠️ All testing is conducted within authorized program scope only. PoCs are minimal-impact and targeted.
+  </p>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-inner">
+    <p>Built by <a href="https://zwanski.org" target="_blank">zwanski2019</a> · Deployed via GitHub Pages</p>
+    <p style="color:var(--muted)">
+      <a href="https://github.com/zwanski2019/zwanski-Bug-Bounty" target="_blank">github.com/zwanski2019/zwanski-Bug-Bounty</a>
+    </p>
+  </div>
+</footer>
+
+<script>
+  function togglePhase(header) {
+    const phase = header.parentElement;
+    phase.classList.toggle('open');
+  }
+
+  function copyInstall() {
+    const text = `git clone git@github.com:zwanski2019/zwanski-Bug-Bounty.git
+cd zwanski-Bug-Bounty
+pip install -r requirements.txt
+streamlit run bb_recon_tool.py
+chmod +x *.sh && ./verify_tools.sh`;
+    navigator.clipboard.writeText(text).then(() => {
+      const btn = document.querySelector('.copy-btn');
+      btn.textContent = 'COPIED!';
+      setTimeout(() => btn.textContent = 'COPY', 2000);
+    });
+  }
+</script>
+
+</body>
+</html>
