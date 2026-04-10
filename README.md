@@ -18,10 +18,29 @@ Use the AI assistant tab to grade findings, summarize impact, and inspect tool h
 The platform uses OpenRouter by default. In Settings, you can also override the API URL to any compatible chat completion endpoint and provide your own API key.
 
 # zwanski Bug Bounty Methodology
+
+[![GitHub stars](https://img.shields.io/github/stars/zwanski2019/zwanski-Bug-Bounty?style=for-the-badge&logo=github)](https://github.com/zwanski2019/zwanski-Bug-Bounty/stargazers) [![GitHub forks](https://img.shields.io/github/forks/zwanski2019/zwanski-Bug-Bounty?style=for-the-badge&logo=github)](https://github.com/zwanski2019/zwanski-Bug-Bounty/network/members) [![License](https://img.shields.io/github/license/zwanski2019/zwanski-Bug-Bounty?style=for-the-badge)](https://github.com/zwanski2019/zwanski-Bug-Bounty/blob/main/LICENSE)
+
 > *By Mohamed Ibrahim (zwanski) — Bug Bounty Switzerland · HackerOne · Bugcrowd*
 
 A practitioner-built, opinionated recon and exploitation methodology focused on **what most hunters skip**.  
 Not a tool list. Not a checklist. A thinking framework backed by actual findings.
+
+---
+
+## Features
+
+- Opinionated bug bounty methodology for modern web, API, OAuth/OIDC and mobile targets
+- Local AI-powered dashboard for grading findings and running tools from one pane
+- One-command installer with optional localhost UI and OpenRouter-compatible AI support
+- Integrated tool status, terminal execution, and actionable methodology guidance
+- Clean phase-based workflow from profiling to reporting
+
+---
+
+## Methodology Overview
+
+The methodology is designed as a chain: business logic, recon, auth surface, vulnerability class, environment bleed, mobile/API correlation, and reporting. Each phase builds on the previous one so you keep scope, context, and impact front and center.
 
 ---
 
@@ -160,6 +179,16 @@ Start using the tools immediately:
 - **[INSTALL.md](INSTALL.md)** — Detailed setup & troubleshooting  
 - **[PRODUCTION.md](PRODUCTION.md)** — Full production deployment
 - **[DOCKER.md](DOCKER.md)** — Container-based setup
+
+---
+
+## 📸 Demo / Proof of Concept
+
+![Demo](assets/screenshot.png)
+
+[![Watch Demo](assets/screenshot.png)](assets/demo.webm)
+
+A short walkthrough of the local ZWANSKI dashboard and AI-assisted workflow, including tool status, terminal execution, and findings grading.
 
 ---
 
