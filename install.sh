@@ -55,7 +55,12 @@ log "Git found"
 # Determine installation location
 # ─────────────────────────────────────────────
 INSTALL_DIR="${ZWANSKI_INSTALL_DIR:-.}"
-REPO_DIR="$INSTALL_DIR/zwanski-Bug-Bounty"
+
+if [[ -d "$INSTALL_DIR/.git" ]]; then
+    REPO_DIR="$INSTALL_DIR"
+else
+    REPO_DIR="$INSTALL_DIR/zwanski-Bug-Bounty"
+fi
 
 info "Installation directory: $(cd "$INSTALL_DIR" && pwd)"
 
@@ -118,3 +123,6 @@ echo "  bash <(curl -fsSL https://raw.githubusercontent.com/zwanski2019/zwanski-
 echo ""
 log "All set! Happy hunting! 🎯"
 echo ""
+
+info "Launching the tool now so you can start with your target immediately..."
+./oauth-mapper
