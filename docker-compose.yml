@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  zwanski-oauth-mapper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: zwanski-oauth-mapper
+    image: zwanski/oauth-mapper:latest
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./output:/opt/zwanski-bug-bounty/output
+    environment:
+      - TARGET_URL=${TARGET_URL:-}
+      - BEARER_TOKEN=${BEARER_TOKEN:-}
+    networks:
+      - zwanski-net
+
+networks:
+  zwanski-net:
+    driver: bridge
