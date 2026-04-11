@@ -218,6 +218,12 @@ You can **mirror** `docs/wiki/` into [GitHub Wiki](https://docs.github.com/en/co
 
 A short walkthrough of the local ZWANSKI dashboard and AI-assisted workflow, including tool status, terminal execution, and findings grading.
 
+### Video demo
+
+[![ZWANSKI.BB — play demo on YouTube](https://img.youtube.com/vi/IYesLdJFj7o/maxresdefault.jpg)](https://youtu.be/IYesLdJFj7o)
+
+**[Watch on YouTube →](https://youtu.be/IYesLdJFj7o)**
+
 ---
 
 ## 🏥 Health & telemetry
