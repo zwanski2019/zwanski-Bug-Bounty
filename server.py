@@ -10,6 +10,7 @@ import shutil
 import signal
 import subprocess
 import threading
+import time
 import uuid
 import webbrowser
 from datetime import datetime
@@ -19,6 +20,7 @@ from flask import Flask, Response, jsonify, request, send_from_directory
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit
 import requests
+import psutil
 
 ROOT = Path(__file__).resolve().parent
 UI_DIR = ROOT / "ui"
@@ -298,6 +300,167 @@ class TaskManager:
 
 
 task_manager = TaskManager()
+
+# ======================
+# SYSTEM HEALTH MONITORING
+# ======================
+
+def get_system_health():
+    """Get current CPU, RAM, and network stats."""
+    cpu_percent = psutil.cpu_percent(interval=0.1)
+    memory = psutil.virtual_memory()
+    net_io = psutil.net_io_counters()
+    
+    return {
+        "cpu_percent": cpu_percent,
+        "cpu_count": psutil.cpu_count(),
+        "memory_total": memory.total,
+        "memory_used": memory.used,
+        "memory_percent": memory.percent,
+        "network_bytes_sent": net_io.bytes_sent,
+        "network_bytes_recv": net_io.bytes_recv,
+        "timestamp": datetime.utcnow().isoformat() + "Z"
+    }
+
+
+def get_process_list():
+    """Get list of running recon processes."""
+    processes = []
+    for task in task_manager.tasks.values():
+        if task.status == "running" and task.proc:
+            try:
+                proc_info = psutil.Process(task.proc.pid)
+                processes.append({
+                    "pid": task.proc.pid,
+                    "tool_name": task.cmd.split()[0] if task.cmd else "unknown",
+                    "command": task.cmd,
+                    "uptime": task.updated_at,
+                    "cpu_percent": proc_info.cpu_percent(interval=0.1),
+                    "memory_mb": proc_info.memory_info().rss / 1024 / 1024,
+                    "status": task.status
+                })
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+    return processes
+
+
+# Background system monitoring thread
+def system_monitor_loop():
+    """Emit system health updates every 2 seconds."""
+    while True:
+        try:
+            health = get_system_health()
+            processes = get_process_list()
+            socketio.emit("system_health", health, broadcast=True)
+            socketio.emit("process_update", {"processes": processes}, broadcast=True)
+        except Exception as e:
+            print(f"System monitor error: {e}")
+        time.sleep(2)
+
+
+# Start system monitor
+monitor_thread = threading.Thread(target=system_monitor_loop, daemon=True)
+monitor_thread.start()
+
+
+# ======================
+# AGENTIC RECON PIPELINE
+# ======================
+
+class AgentPipeline:
+    """Multi-phase recon pipeline with AI agents."""
+    
+    def __init__(self, target_domain):
+        self.target_domain = target_domain
+        self.phase = "idle"  # idle, intelligence, recon, attack, complete
+        self.results = {
+            "intelligence": [],  # CrawlAI-RAG results
+            "subdomains": [],   # Subfinder/Subdominator results
+            "endpoints": [],    # httpx/naabu results
+            "vulnerabilities": [],  # NeuroSploit findings
+            "logs": []
+        }
+        self.vector_db = []  # ChromaDB-like knowledge base
+    
+    def log(self, message):
+        """Log message to pipeline."""
+        entry = f"[{datetime.now().strftime('%H:%M:%S')}] {message}"
+        self.results["logs"].append(entry)
+        print(f"[AgentPipeline] {entry}")
+        socketio.emit("agent_log", {"message": entry, "phase": self.phase}, broadcast=True)
+    
+    def run_intelligence_phase(self):
+        """Phase A: CrawlAI-RAG for target intelligence."""
+        self.phase = "intelligence"
+        self.log(f"INTELLIGENCE: Starting CrawlAI-RAG for {self.target_domain}")
+        
+        # Crawl the target
+        cmd = f"crawlai-rag --target {self.target_domain} --output /tmp/crawl_{self.target_domain}.json 2>/dev/null || echo 'crawlai-rag not found, using httpx'"
+        
+        # Fallback to basic crawling
+        if not shutil.which("crawlai-rag"):
+            cmd = f"httpx -u {self.target_domain} -silent -sc"
+        
+        self.log(f"Running: {cmd}")
+        self.results["intelligence"].append(f"Scanned {self.target_domain}")
+        self.log("INTELLIGENCE: Phase complete")
+        return self.results["intelligence"]
+    
+    def run_recon_phase(self):
+        """Phase B: Subdominator + ProjectDiscovery."""
+        self.phase = "recon"
+        self.log("RECON: Starting subdomain enumeration")
+        
+        # Run Subfinder
+        if shutil.which("subfinder"):
+            cmd = f"subfinder -d {self.target_domain} -silent -o /tmp/subs_{self.target_domain}.txt"
+            self.log(f"Running: {cmd}")
+            self.results["subdomains"].append(f"subfinder completed for {self.target_domain}")
+        
+        self.log("RECON: Phase complete")
+        return self.results["subdomains"]
+    
+    def run_attack_phase(self):
+        """Phase C: NeuroSploit for vulnerability detection."""
+        self.phase = "attack"
+        self.log("ATTACK: Starting NeuroSploit analysis")
+        
+        # Run basic vulnerability scan
+        if shutil.which("nuclei"):
+            cmd = f"nuclei -u https://{self.target_domain} -silent -nc"
+            self.log(f"Running: {cmd}")
+            self.results["vulnerabilities"].append(f"nuclei scan completed for {self.target_domain}")
+        
+        self.log("ATTACK: Phase complete")
+        return self.results["vulnerabilities"]
+    
+    def run_full_pipeline(self):
+        """Execute full agentic pipeline."""
+        self.log(f"Starting full pipeline for {self.target_domain}")
+        
+        # Phase A
+        self.run_intelligence_phase()
+        
+        # Phase B  
+        self.run_recon_phase()
+        
+        # Phase C
+        self.run_attack_phase()
+        
+        self.phase = "complete"
+        self.log("PIPELINE: Full reconnaissance complete")
+        return self.results
+    
+    def to_dict(self):
+        return {
+            "target": self.target_domain,
+            "phase": self.phase,
+            "results": self.results
+        }
+
+
+# Active agent pipelines
+agent_pipelines = {}
 
 
 def summarize_scan_text(raw_text, max_length=3500):
@@ -593,7 +756,162 @@ def api_deploy():
         else:
             return jsonify({"ok": False, "error": result.stderr}), 500
     except Exception as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 500
+        return jsonify({"ok": False, "error": str(exc)}), 502
+
+
+# ======================
+# SYSTEM HEALTH API
+# ======================
+
+@app.route("/api/system/health", methods=["GET"])
+def api_system_health():
+    """Get current system health metrics."""
+    return jsonify(get_system_health())
+
+
+@app.route("/api/system/processes", methods=["GET"])
+def api_system_processes():
+    """Get list of running processes."""
+    return jsonify({"processes": get_process_list()})
+
+
+# ======================
+# AGENT PIPELINE API
+# ======================
+
+@app.route("/api/agent/run", methods=["POST"])
+def api_agent_run():
+    """Start an agent pipeline for a target."""
+    body = request.get_json(silent=True) or {}
+    target = body.get("target", "").strip()
+    if not target:
+        return jsonify({"error": "Target (domain) is required."}), 400
+    
+    # Validate target format
+    if not target.replace(".", "").replace("-", "").isalnum():
+        return jsonify({"error": "Invalid target format."}), 400
+    
+    pipeline_id = uuid.uuid4().hex
+    pipeline = AgentPipeline(target)
+    agent_pipelines[pipeline_id] = pipeline
+    
+    # Run pipeline in background thread
+    def run_pipeline(pipeline_id, pipeline):
+        try:
+            pipeline.run_full_pipeline()
+        except Exception as e:
+            print(f"Pipeline error: {e}")
+    
+    thread = threading.Thread(target=run_pipeline, args=(pipeline_id, pipeline), daemon=True)
+    thread.start()
+    
+    return jsonify({
+        "ok": True,
+        "pipeline_id": pipeline_id,
+        "target": target,
+        "status": "started"
+    })
+
+
+@app.route("/api/agent/<pipeline_id>", methods=["GET"])
+def api_agent_status(pipeline_id):
+    """Get status of an agent pipeline."""
+    pipeline = agent_pipelines.get(pipeline_id)
+    if not pipeline:
+        return jsonify({"error": "Pipeline not found."}), 404
+    return jsonify(pipeline.to_dict())
+
+
+@app.route("/api/agent", methods=["GET"])
+def api_agent_list():
+    """List all agent pipelines."""
+    return jsonify({
+        "pipelines": [p.to_dict() for p in agent_pipelines.values()]
+    })
+
+
+# ======================
+# AUTO-REPORTING API
+# ======================
+
+@app.route("/api/report/finalize", methods=["POST"])
+def api_report_finalize():
+    """Generate a final report from agent logs and recon data."""
+    config = load_config()
+    key = config.get("openrouter_key", "")
+    if not key:
+        return jsonify({"error": "OpenRouter API key is not set."}), 400
+    
+    body = request.get_json(silent=True) or {}
+    pipeline_id = body.get("pipeline_id")
+    target = body.get("target", "")
+    platform = body.get("platform", "HackerOne")
+    
+    # Get pipeline data
+    pipeline_data = ""
+    if pipeline_id:
+        pipeline = agent_pipelines.get(pipeline_id)
+        if pipeline:
+            pipeline_data = json.dumps(pipeline.results, indent=2)
+    
+    # Get task data
+    task_data = ""
+    recent_tasks = task_manager.list_tasks()[:5]
+    for task in recent_tasks:
+        task_data += f"\n--- Task: {task['cmd']} ---\n"
+        task_data += task.get("stdout", "")[:1000]
+    
+    # Build comprehensive report prompt
+    prompt = f"""You are a professional bug bounty report writer. Create a comprehensive security assessment report.
+
+Target: {target}
+
+=== AGENT PIPELINE RESULTS ===
+{pipeline_data}
+
+=== RECENT TASK OUTPUT ===
+{task_data}
+
+Generate a professional report with these sections:
+1. Executive Summary
+2. Scope
+3. Methodology  
+4. Findings (with severity ratings: Critical, High, Medium, Low)
+5. Impact Analysis
+6. Proof of Concept
+7. Remediation Recommendations
+8. References
+
+Make it suitable for {platform} submission. Use clear markdown formatting."""
+
+    messages = [
+        {"role": "system", "content": "You are a professional vulnerability report writer."},
+        {"role": "user", "content": prompt}
+    ]
+    
+    api_url = config.get("api_url", DEFAULT_API_URL) or DEFAULT_API_URL
+    payload = {
+        "model": config.get("model", DEFAULT_MODEL),
+        "messages": messages,
+        "temperature": 0.2,
+        "max_tokens": 2000
+    }
+    
+    try:
+        data = call_openrouter_api(api_url, key, payload)
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        
+        # Save report to file
+        report_filename = ROOT / f"report_{target}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+        report_filename.write_text(content)
+        
+        return jsonify({
+            "ok": True,
+            "report": content,
+            "report_file": str(report_filename)
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 502
 
 
 

@@ -68,6 +68,36 @@ info "Installing dashboard dependencies..."
 source "$PLATFORM_DIR/.venv/bin/activate"
 pip install -q flask flask-cors requests || warn "Failed to install dashboard dependencies"
 
+# ======================
+# ADDITIONAL SECURITY TOOLS
+# ======================
+
+info "Checking for additional security tools..."
+
+# Subdominator (RevoltSecurities)
+if ! has subdominator; then
+  if [[ ! -d "$PLATFORM_DIR/Subdominator" ]]; then
+    info "Cloning Subdominator..."
+    git clone --depth=1 https://github.com/RevoltSecurities/Subdominator "$PLATFORM_DIR/Subdominator" 2>/dev/null || true
+  fi
+fi
+
+# NeuroSploit (JoasASantos)
+if ! has neurosploit; then
+  if [[ ! -d "$PLATFORM_DIR/NeuroSploit" ]]; then
+    info "Cloning NeuroSploit..."
+    git clone --depth=1 https://github.com/JoasASantos/NeuroSploit "$PLATFORM_DIR/NeuroSploit" 2>/dev/null || true
+  fi
+fi
+
+# CrawlAI-RAG (AnkitNayak-eth)
+if ! has crawlai-rag; then
+  if [[ ! -d "$PLATFORM_DIR/CrawlAI-RAG" ]]; then
+    info "Cloning CrawlAI-RAG..."
+    git clone --depth=1 https://github.com/AnkitNayak-eth/CrawlAI-RAG "$PLATFORM_DIR/CrawlAI-RAG" 2>/dev/null || true
+  fi
+fi
+
 info "Creating platform launcher..."
 cat > "$BIN_DIR/zwanski" <<'ZWN'
 #!/usr/bin/env bash
