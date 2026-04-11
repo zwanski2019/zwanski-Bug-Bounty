@@ -29,6 +29,7 @@ import psutil
 ROOT = Path(__file__).resolve().parent
 load_dotenv(ROOT / ".env")
 UI_DIR = ROOT / "ui"
+WATCHDOG_ROOT = ROOT / "zwanski-watchdog"
 
 from zwanski_kb import TargetKnowledgeBase
 from shadow_client import shadow_request
@@ -1269,6 +1270,94 @@ def api_openclaw_commands():
     if not bridge.exists():
         return jsonify({"error": "openclaw_bridge.json missing"}), 404
     return jsonify(json.loads(bridge.read_text()))
+
+
+def _watchdog_service_urls():
+    """URLs for Watchdog stack (override via .env)."""
+    return {
+        "api": os.environ.get("WATCHDOG_API_URL", "http://127.0.0.1:4000").rstrip("/"),
+        "web": os.environ.get("WATCHDOG_WEB_URL", "http://127.0.0.1:3000").rstrip("/"),
+        "classifier": os.environ.get("WATCHDOG_CLASSIFIER_URL", "http://127.0.0.1:8001").rstrip("/"),
+    }
+
+
+def _http_probe(url: str, path: str, timeout: float = 2.0):
+    """Return (reachable, status_code_or_none, error_hint)."""
+    try:
+        r = requests.get(f"{url}{path}", timeout=timeout, allow_redirects=True)
+        return True, r.status_code, None
+    except requests.RequestException as exc:
+        return False, None, str(exc)[:120]
+
+
+@app.route("/api/watchdog/info", methods=["GET"])
+def api_watchdog_info():
+    """Static paths and quick-start hints for the embedded Watchdog monorepo."""
+    urls = _watchdog_service_urls()
+    compose = WATCHDOG_ROOT / "infra" / "docker-compose.yml"
+    return jsonify(
+        {
+            "ok": True,
+            "installed": WATCHDOG_ROOT.is_dir() and (WATCHDOG_ROOT / "README.md").exists(),
+            "root": str(WATCHDOG_ROOT),
+            "docker_compose": str(compose) if compose.is_file() else None,
+            "urls": urls,
+            "docs_url": "https://github.com/zwanski2019/zwanski-Bug-Bounty/tree/main/zwanski-watchdog",
+        }
+    )
+
+
+@app.route("/api/watchdog/status", methods=["GET"])
+def api_watchdog_status():
+    """Reachability of Watchdog API / web / classifier (when you run them locally)."""
+    urls = _watchdog_service_urls()
+    api_ok, api_code, api_err = _http_probe(urls["api"], "/health")
+    web_ok, web_code, web_err = _http_probe(urls["web"], "/")
+    clf_ok, clf_code, clf_err = _http_probe(urls["classifier"], "/health")
+    return jsonify(
+        {
+            "ok": True,
+            "installed": WATCHDOG_ROOT.is_dir(),
+            "services": {
+                "api": {"url": urls["api"], "up": api_ok, "status": api_code, "error": api_err},
+                "web": {"url": urls["web"], "up": web_ok, "status": web_code, "error": web_err},
+                "classifier": {"url": urls["classifier"], "up": clf_ok, "status": clf_code, "error": clf_err},
+            },
+        }
+    )
+
+
+def _watchdog_shell_tasks():
+    """Fixed commands only — no user-controlled shell fragments."""
+    r = str(WATCHDOG_ROOT.resolve())
+    return {
+        "compose_up": f'cd "{r}/infra" && docker compose up -d postgres redis elasticsearch minio ipfs',
+        "compose_down": f'cd "{r}/infra" && docker compose down',
+        "pnpm_install": f'cd "{r}" && pnpm install',
+        "api_dev": f'cd "{r}" && pnpm --filter @zwanski/api dev',
+        "web_dev": f'cd "{r}" && pnpm --filter @zwanski/web dev',
+        "classifier_dev": (
+            f'cd "{r}/apps/classifier" && pip install -q -r requirements.txt '
+            f'&& uvicorn main:app --host 127.0.0.1 --port 8001'
+        ),
+        "scanner_dry": f'cd "{r}/apps/scanner" && go run ./cmd/watchdog --dry-run --modules s3',
+        "scanner_help": f'cd "{r}/apps/scanner" && go run ./cmd/watchdog --help',
+    }
+
+
+@app.route("/api/watchdog/run", methods=["POST"])
+def api_watchdog_run():
+    """Queue a predefined Watchdog maintenance command (streams in Terminal tab)."""
+    if not WATCHDOG_ROOT.is_dir():
+        return jsonify({"error": "zwanski-watchdog directory not found in platform root."}), 404
+    body = request.get_json(silent=True) or {}
+    task_key = (body.get("task") or "").strip()
+    tasks = _watchdog_shell_tasks()
+    if task_key not in tasks:
+        return jsonify({"error": "unknown task", "allowed": list(tasks.keys())}), 400
+    cmd = tasks[task_key]
+    t = task_manager.submit(cmd)
+    return jsonify({"ok": True, "task_id": t.id, "cmd": cmd})
 
 
 @app.route("/api/kb/query", methods=["POST"])

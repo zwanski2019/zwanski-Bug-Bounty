@@ -80,6 +80,12 @@ button.danger{background:var(--red);color:#fff}
 .process-table th{color:var(--muted);font-size:11px;font-weight:500}
 .term-toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:12px;color:var(--muted)}
 .term-toolbar label{display:flex;align-items:center;gap:6px;cursor:pointer}
+.watchdog-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:12px}
+.watchdog-svc{padding:14px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;font-size:12px}
+.watchdog-svc strong{display:block;font-size:13px;margin-bottom:6px}
+.watchdog-svc .url{color:var(--muted);word-break:break-all;font-size:11px;margin-bottom:8px}
+.watchdog-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.watchdog-note{font-size:12px;color:var(--muted);margin-top:10px;line-height:1.5}
 </style>
 </head>
 <body>
@@ -105,6 +111,7 @@ button.danger{background:var(--red);color:#fff}
     <div class="nav-item" data-tab="system">Telemetry</div>
     <div class="nav-item" data-tab="agents">Agentic</div>
     <div class="nav-item" data-tab="tools">Arsenal</div>
+    <div class="nav-item" data-tab="watchdog">Watchdog</div>
     <div class="nav-item" data-tab="terminal">Terminal</div>
     <div class="nav-item" data-tab="ai">Intel AI</div>
     <div class="nav-item" data-tab="reports">Reports</div>
@@ -250,6 +257,28 @@ button.danger{background:var(--red);color:#fff}
       </div>
     </section>
 
+    <section id="watchdog" class="tab-panel" style="display:none">
+      <div class="card">
+        <div class="section-title">
+          <h2>ZWANSKI Watchdog</h2>
+          <span style="color:var(--muted);font-size:12px">Monorepo control · status + safe actions</span>
+        </div>
+        <p id="watchdogInstallNote" class="watchdog-note" style="display:none"></p>
+        <div class="watchdog-grid" id="watchdogStatusGrid"></div>
+        <div class="watchdog-actions">
+          <button type="button" class="success" onclick="watchdogRun('compose_up')">Docker infra up</button>
+          <button type="button" class="danger" onclick="watchdogRun('compose_down')">Docker infra down</button>
+          <button type="button" class="secondary" onclick="watchdogRun('pnpm_install')">pnpm install</button>
+          <button type="button" onclick="watchdogRun('api_dev')">API dev</button>
+          <button type="button" onclick="watchdogRun('web_dev')">Web dev</button>
+          <button type="button" onclick="watchdogRun('classifier_dev')">Classifier</button>
+          <button type="button" class="secondary" onclick="watchdogRun('scanner_dry')">Scanner dry-run</button>
+          <button type="button" class="secondary" onclick="watchdogRun('scanner_help')">Scanner help</button>
+        </div>
+        <p class="watchdog-note">Long-running dev servers stream in the <strong>Terminal</strong> tab. Start infra first, then API / web / classifier per the <a id="watchdogDocsLink" href="#" target="_blank" rel="noopener" style="color:var(--cyan)">Watchdog README</a>.</p>
+      </div>
+    </section>
+
     <section id="terminal" class="tab-panel" style="display:none">
       <div class="card">
         <div class="section-title"><h2>Unified stream</h2><span id="currentTaskLabel" style="color:var(--muted);font-size:12px"></span></div>
@@ -345,6 +374,7 @@ let lastAgentTarget = '';
 let term = null;
 let fitAddon = null;
 let netPulse = 0;
+let watchdogPoll = null;
 
 function showTab(name) {
   tabs.forEach(el => el.classList.toggle('active', el.dataset.tab === name));
@@ -352,9 +382,92 @@ function showTab(name) {
   if (name === 'terminal') {
     requestAnimationFrame(() => { initXterm(); fitTerm(); });
   }
+  if (name === 'watchdog') {
+    refreshWatchdog();
+    if (watchdogPoll) clearInterval(watchdogPoll);
+    watchdogPoll = setInterval(refreshWatchdog, 10000);
+  } else if (watchdogPoll) {
+    clearInterval(watchdogPoll);
+    watchdogPoll = null;
+  }
 }
 tabs.forEach(el => el.addEventListener('click', () => showTab(el.dataset.tab)));
 showTab('dashboard');
+
+async function refreshWatchdog() {
+  const grid = document.getElementById('watchdogStatusGrid');
+  const note = document.getElementById('watchdogInstallNote');
+  if (!grid) return;
+  try {
+    const [infoRes, stRes] = await Promise.all([
+      fetch('/api/watchdog/info'),
+      fetch('/api/watchdog/status'),
+    ]);
+    const info = await infoRes.json();
+    const st = await stRes.json();
+    const docs = document.getElementById('watchdogDocsLink');
+    if (docs && info.docs_url) docs.href = info.docs_url;
+    if (note) {
+      if (!info.installed) {
+        note.style.display = 'block';
+        note.textContent = 'zwanski-watchdog is missing next to server.py — clone or sync the repo.';
+      } else {
+        note.style.display = 'none';
+      }
+    }
+    if (!st.services) {
+      grid.innerHTML = '<p style="color:var(--muted)">Could not load status.</p>';
+      return;
+    }
+    const rows = [];
+    for (const [key, svc] of Object.entries(st.services)) {
+      const up = svc.up;
+      const badge = up
+        ? '<span class="badge installed">UP</span>'
+        : '<span class="badge missing">DOWN</span>';
+      const err = svc.error ? `<div style="color:var(--orange);font-size:11px;margin-top:6px">${escapeHtml(svc.error)}</div>` : '';
+      rows.push(
+        `<div class="watchdog-svc"><strong>${escapeHtml(key)}</strong> ${badge}` +
+          `<div class="url">${escapeHtml(svc.url)}</div>` +
+          `<div style="display:flex;flex-wrap:wrap;gap:6px">` +
+          (key === 'api'
+            ? `<a class="secondary" style="display:inline-block;padding:6px 10px;border-radius:8px;text-decoration:none" href="${escapeHtml(svc.url)}/docs" target="_blank" rel="noopener">Open API docs</a>`
+            : `<a class="secondary" style="display:inline-block;padding:6px 10px;border-radius:8px;text-decoration:none" href="${escapeHtml(svc.url)}" target="_blank" rel="noopener">Open</a>`) +
+          `</div>${err}</div>`
+      );
+    }
+    grid.innerHTML = rows.join('');
+  } catch (e) {
+    grid.innerHTML = `<p style="color:var(--red)">${escapeHtml(String(e))}</p>`;
+  }
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+async function watchdogRun(task) {
+  try {
+    const r = await fetch('/api/watchdog/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task }),
+    });
+    const j = await r.json();
+    if (!r.ok) {
+      alert(j.error || r.statusText);
+      return;
+    }
+    showTab('terminal');
+    if (j.task_id) currentTaskId = j.task_id;
+  } catch (e) {
+    alert(String(e));
+  }
+}
 
 function followAllTasks() {
   return document.getElementById('followAll')?.checked !== false;
