@@ -29,6 +29,7 @@ body{margin:0;font-family:Inter,system-ui,sans-serif;background:var(--bg);color:
 .badge{display:inline-flex;padding:4px 10px;border-radius:999px;font-size:11px;letter-spacing:.05em}
 .badge.installed{background:#052e18;color:var(--green)}
 .badge.missing{background:#221214;color:#f87171}
+.badge-running{background:#fbbf24;color:#000}
 textarea,input,button{font:inherit}
 textarea,input{width:100%;background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:12px;color:var(--text);resize:vertical}
 button{border:none;border-radius:14px;padding:12px 18px;background:var(--cyan);color:#000;cursor:pointer;transition:opacity .2s}
@@ -53,36 +54,65 @@ button:hover{opacity:.9}
   <main class="main">
     <div class="header">
       <div>
-        <h1>Bug Bounty Platform</h1>
-        <p style="color:var(--muted);margin:6px 0 0">Local UI + AI assistant + live tool status.</p>
+        <h1>Bug Bounty Platform v2.0</h1>
+        <p style="color:var(--muted);margin:6px 0 0">Local UI + AI assistant + live tool status + C2 Controls.</p>
       </div>
-      <div>
-        <a class="link-btn" href="/" target="_blank">Open Dashboard</a>
+      <div style="display:flex;gap:12px;">
+        <button onclick="runScan()">RUN SCAN</button>
+        <button onclick="restartSystem()">RESTART SYSTEM</button>
+        <button id="aiReconToggle" onclick="toggleAiRecon()" style="background:var(--green);">AI RECON: ON</button>
+        <a class="link-btn" href="/" target="_blank">Docs</a>
       </div>
     </div>
+
 
     <section id="dashboard" class="tab-panel">
       <div class="grid">
         <div class="metric"><strong id="toolCount">...</strong><span>Tools installed</span></div>
+        <div class="metric"><strong id="activeTaskCount">0</strong><span>Active tasks</span></div>
         <div class="metric"><strong>1337</strong><span>Local dashboard port</span></div>
-        <div class="metric"><strong>OpenRouter</strong><span>AI integration</span></div>
       </div>
       <div class="card">
         <div class="section-title"><h2>Quick start</h2></div>
-        <p>Use <code>zwanski start</code> to launch the platform. Then visit <strong>http://localhost:1337</strong></p>
-        <p>Use the AI assistant to grade findings, summarize impact, or generate report text.</p>
+        <p>Use the command builder below to run tools and scans directly from the UI.</p>
+        <p>The dashboard now supports background task execution, live terminal syncing, and saved task snapshots.</p>
       </div>
       <div class="card">
-        <div class="section-title"><h2>AI grading</h2></div>
-        <div class="form-row">
-          <textarea id="gradeInput" rows="4" placeholder="Paste your finding description here..."></textarea>
-          <button onclick="gradeFinding()">Grade finding with AI</button>
-        </div>
-        <div class="output" id="gradeOutput">AI grade output appears here.</div>
+        <div class="section-title"><h2>Live tasks</h2></div>
+        <div id="taskList"></div>
       </div>
     </section>
 
     <section id="tools" class="tab-panel" style="display:none">
+      <div class="card">
+        <div class="section-title"><h2>Command builder</h2></div>
+        <div class="form-row">
+          <label>Select tool</label>
+          <select id="toolSelect"></select>
+        </div>
+        <div class="form-row">
+          <label>Target / input</label>
+          <input id="toolTarget" placeholder="e.g. https://example.com or urls.txt" />
+        </div>
+        <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div>
+            <label>Extra args</label>
+            <input id="toolArgs" placeholder="e.g. -t 50 -o output.txt" />
+          </div>
+          <div>
+            <label style="display:flex;align-items:center;gap:8px"><input id="toolSilent" type="checkbox" /> Quiet mode</label>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Preview command</label>
+          <input id="cmdPreview" readonly />
+        </div>
+        <div class="form-row" style="display:flex;gap:12px;flex-wrap:wrap;">
+          <button onclick="runSelectedCommand()">Run selected tool</button>
+          <button onclick="runRecon()">Run recon chain</button>
+          <button onclick="runOAuth()">Run OAuth mapper</button>
+        </div>
+      </div>
       <div class="card">
         <div class="section-title"><h2>Installed tools</h2></div>
         <div class="tool-list" id="toolList"></div>
@@ -91,12 +121,8 @@ button:hover{opacity:.9}
 
     <section id="terminal" class="tab-panel" style="display:none">
       <div class="card">
-        <div class="section-title"><h2>Run a tool</h2></div>
-        <div class="form-row">
-          <input id="cmdInput" type="text" placeholder="e.g. httpx -l urls.txt -silent" />
-          <button onclick="runCommand()">Run</button>
-        </div>
-        <div class="output" id="cmdOutput">Command output appears here.</div>
+        <div class="section-title"><h2>Terminal</h2><span id="currentTaskLabel" style="color:var(--muted);font-size:13px"></span></div>
+        <div class="output" id="terminalOutput">Terminal output appears here.</div>
       </div>
     </section>
 
@@ -107,8 +133,18 @@ button:hover{opacity:.9}
           <textarea id="chatInput" rows="4" placeholder="Ask the AI about OAuth attacks, recon chains, or report wording."></textarea>
           <button onclick="sendMessage()">Send</button>
         </div>
-        <div class="output" id="chatOutput">Ask the AI a question and it will respond here.</div>
+        <div class="output" id="aiOutput">Ask the AI a question and it will respond here.</div>
+        <div style="margin-top:20px;padding-top:20px;border-top:1px solid var(--border);">
+          <h3 style="margin:0 0 12px;font-size:16px">Nuclei/HTTP Logs → HackerOne Report</h3>
+          <textarea id="nucleiLogs" rows="6" placeholder="Paste Nuclei output or HTTP logs here..."></textarea>
+          <div style="display:flex;gap:12px;margin-top:12px;">
+            <button onclick="generateNucleiReport()">Generate Report</button>
+            <button onclick="gradeNucleiFinding()">AI Grade</button>
+          </div>
+          <div class="output" id="nucleiOutput" style="margin-top:16px;">Report appears here.</div>
+        </div>
       </div>
+
     </section>
 
     <section id="settings" class="tab-panel" style="display:none">
@@ -117,26 +153,65 @@ button:hover{opacity:.9}
         <div class="form-row"><label>API key (OpenRouter or compatible endpoint)</label><input id="openrouterKey" placeholder="sk-..." /></div>
         <div class="form-row"><label>API URL</label><input id="apiUrl" placeholder="https://openrouter.ai/api/v1/chat/completions" /></div>
         <div class="form-row"><label>Model</label><input id="modelName" placeholder="google/gemini-flash-1.5" /></div>
+        <div class="form-row"><label style="display:flex;align-items:center;gap:8px"><input id="aiReconEnabled" type="checkbox" checked /> AI Recon Auto</label></div>
         <button onclick="saveSettings()">Save settings</button>
-        <p style="color:var(--muted);margin-top:12px">After saving, re-run the dashboard or refresh this page.</p>
+        <div style="display:flex;gap:12px;margin-top:16px;">
+          <button onclick="deploy()" style="background:var(--green);">🚀 DEPLOY v2.0</button>
+        </div>
+        <p style="color:var(--muted);margin-top:12px">Note: API key also loads from .env (higher priority). Refresh after changes. Deploy commits/pushes to GitHub.</p>
       </div>
+
     </section>
   </main>
 </div>
 <script>
 const tabs = document.querySelectorAll('.nav-item');
 const panels = document.querySelectorAll('.tab-panel');
+let currentTaskId = null;
+let tasks = [];
+
 function showTab(name){
   tabs.forEach(el => el.classList.toggle('active', el.dataset.tab===name));
   panels.forEach(p => p.id===name ? p.style.display='block' : p.style.display='none');
 }
+
 tabs.forEach(el => el.addEventListener('click', ()=> showTab(el.dataset.tab)));
 showTab('dashboard');
 
-async function fetchTools(){
-  const res = await fetch('/api/tools');
-  const tools = await res.json();
-  document.getElementById('toolCount').textContent = tools.filter(t=>t.installed).length + '/' + tools.length;
+function setCommandPreview(){
+  const tool = document.getElementById('toolSelect').value;
+  const target = document.getElementById('toolTarget').value.trim();
+  const args = document.getElementById('toolArgs').value.trim();
+  const silent = document.getElementById('toolSilent').checked ? '-silent' : '';
+  document.getElementById('cmdPreview').value = [tool, target, silent, args].filter(Boolean).join(' ');
+}
+
+function updateTaskSummary(){
+  const active = tasks.filter(t => t.status === 'running').length;
+  document.getElementById('activeTaskCount').textContent = active;
+}
+
+function renderTaskList(){
+  const list = document.getElementById('taskList');
+  if (!tasks.length) {
+    list.innerHTML = '<p style="color:var(--muted)">No tasks have been started yet.</p>';
+    return;
+  }
+  list.innerHTML = tasks.map(task => `
+    <div class="tool" style="cursor:pointer;" onclick="openTask('${task.id}')">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+        <h3>${task.cmd}</h3>
+        <span class="badge ${task.status==='completed'?'installed':task.status==='running'?'badge-running':'missing'}">${task.status}</span>
+      </div>
+      <p style="color:var(--muted);font-size:13px">Updated: ${new Date(task.updated_at).toLocaleString()}</p>
+    </div>
+  `).join('');
+}
+
+function renderTools(tools){
+  const select = document.getElementById('toolSelect');
+  select.innerHTML = tools.filter(t=>t.installed).map(t => `<option value="${t.name}">${t.name}</option>`).join('');
+  setCommandPreview();
   const list = document.getElementById('toolList');
   list.innerHTML = tools.map(t => `
     <div class="tool">
@@ -146,66 +221,193 @@ async function fetchTools(){
   `).join('');
 }
 
+function updateTask(task){
+  const index = tasks.findIndex(t => t.id === task.id);
+  if (index === -1) {
+    tasks.unshift(task);
+  } else {
+    tasks[index] = Object.assign(tasks[index], task);
+  }
+  updateTaskSummary();
+  renderTaskList();
+}
+
+function runRecon(){
+  socket.emit('run_command', {command: 'subdomain-recon'});
+  showTab('terminal');
+  const term = document.getElementById('terminalOutput');
+  term.textContent = 'Queued: subdomain-recon\n';
+  currentTaskId = null;
+}
+
+function runOAuth(){
+  socket.emit('run_command', {command: 'oauth-mapper'});
+  showTab('terminal');
+  const term = document.getElementById('terminalOutput');
+  term.textContent = 'Queued: oauth-mapper\n';
+  currentTaskId = null;
+}
+
+async function fetchTools(){
+  const res = await fetch('/api/tools');
+  const tools = await res.json();
+  document.getElementById('toolCount').textContent = tools.filter(t=>t.installed).length + '/' + tools.length;
+  renderTools(tools);
+}
+
 async function fetchConfig(){
   const res = await fetch('/api/config');
   const cfg = await res.json();
   document.getElementById('openrouterKey').value = cfg.openrouter_key || '';
   document.getElementById('apiUrl').value = cfg.api_url || 'https://openrouter.ai/api/v1/chat/completions';
   document.getElementById('modelName').value = cfg.model || 'google/gemini-flash-1.5';
+  document.getElementById('aiReconEnabled').checked = cfg.ai_recon_enabled !== false;
+  toggleAiRecon(); // Init toggle state
+}
+
+
+async function fetchTasks(){
+  const res = await fetch('/api/tasks');
+  tasks = await res.json();
+  renderTaskList();
+  updateTaskSummary();
 }
 
 async function saveSettings(){
   const key = document.getElementById('openrouterKey').value.trim();
   const apiUrl = document.getElementById('apiUrl').value.trim() || 'https://openrouter.ai/api/v1/chat/completions';
   const model = document.getElementById('modelName').value.trim();
-  const res = await fetch('/api/config', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({openrouter_key:key,api_url:apiUrl,model:model})});
+  const aiRecon = document.getElementById('aiReconEnabled').checked;
+  const res = await fetch('/api/config', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({openrouter_key:key,api_url:apiUrl,model:model,ai_recon_enabled:aiRecon})});
   const body = await res.json();
   alert(body.ok ? 'Settings saved' : 'Failed to save settings');
 }
 
-async function runCommand(){
-  const cmd = document.getElementById('cmdInput').value.trim();
-  if(!cmd){return;}
-  const out = document.getElementById('cmdOutput');
-  out.textContent = 'Running...';
-  const res = await fetch('/api/run',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({cmd})});
-  const data = await res.json();
-  out.textContent = data.stdout || data.stderr || JSON.stringify(data, null, 2);
+function runScan() {
+  const target = prompt('Enter target (domain/URL):', 'example.com');
+  if (!target) return;
+  const cmd = `nuclei -u https://${target} -silent`;
+  socket.emit('run_command', {command: cmd});
+  showTab('terminal');
+}
+
+async function restartSystem() {
+  if (confirm('Restart dashboard server? This will reload on port 1337.')) {
+    const res = await fetch('/api/control/restart', {method: 'POST'});
+    const data = await res.json();
+    alert('Restarting... page will reload shortly.');
+  }
+}
+
+function toggleAiRecon() {
+  const toggle = document.getElementById('aiReconToggle');
+  const enabled = !toggle.style.background.includes('var(--green)');
+  toggle.style.background = enabled ? 'var(--green)' : 'var(--red)';
+  toggle.textContent = `AI RECON: ${enabled ? 'ON' : 'OFF'}`;
+  document.getElementById('aiReconEnabled').checked = enabled;
+}
+
+
+function appendTerminalOutput(text){
+  const term = document.getElementById('terminalOutput');
+  if (!term.textContent.trim()) {
+    term.textContent = '';
+  }
+  term.textContent += text;
+  term.scrollTop = term.scrollHeight;
+}
+
+function openTask(taskId){
+  const task = tasks.find(t => t.id === taskId);
+  if (!task) return;
+  showTab('terminal');
+  currentTaskId = task.id;
+  document.getElementById('currentTaskLabel').textContent = `Task: ${task.cmd}`;
+  fetch(`/api/tasks/${taskId}`).then(r => r.json()).then(data => {
+    const term = document.getElementById('terminalOutput');
+    term.textContent = (data.logs || []).map(item => item.text).join('');
+    term.scrollTop = term.scrollHeight;
+  });
+}
+
+function runSelectedCommand(){
+  const tool = document.getElementById('toolSelect').value;
+  const target = document.getElementById('toolTarget').value.trim();
+  const args = document.getElementById('toolArgs').value.trim();
+  const silent = document.getElementById('toolSilent').checked ? '-silent' : '';
+  const cmd = [tool, target, silent, args].filter(Boolean).join(' ');
+  if (!cmd) return;
+  socket.emit('run_command', {command: cmd});
+  showTab('terminal');
+  const term = document.getElementById('terminalOutput');
+  term.textContent = `Queued: ${cmd}\n`;
+  currentTaskId = null;
 }
 
 async function sendMessage(){
   const text = document.getElementById('chatInput').value.trim();
   if(!text){return;}
-  const out = document.getElementById('chatOutput');
+  const out = document.getElementById('aiOutput');
   out.textContent = 'Thinking...';
   const res = await fetch('/api/ai/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:text}]})});
   const data = await res.json();
   out.textContent = data.message || data.error || JSON.stringify(data, null, 2);
 }
 
-async function gradeFinding(){
-  const finding = document.getElementById('gradeInput').value.trim();
-  if(!finding){return;}
-  const out = document.getElementById('gradeOutput');
-  out.textContent = 'Grading...';
-  const res = await fetch('/api/ai/grade',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({finding})});
+async function generateNucleiReport(){
+  const logs = document.getElementById('nucleiLogs').value.trim();
+  if(!logs){ alert('Paste logs first'); return; }
+  const out = document.getElementById('nucleiOutput');
+  out.textContent = 'Generating HackerOne report...';
+  const res = await fetch('/api/ai/nuclei-report',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({logs})});
+  const data = await res.json();
+  out.textContent = data.report || data.error || JSON.stringify(data, null, 2);
+}
+
+async function gradeNucleiFinding(){
+  const logs = document.getElementById('nucleiLogs').value.trim();
+  if(!logs){ alert('Paste logs first'); return; }
+  const out = document.getElementById('nucleiOutput');
+  out.textContent = 'AI Grading...';
+  const res = await fetch('/api/ai/grade',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({finding:logs})});
   const data = await res.json();
   out.textContent = data.grade || data.error || JSON.stringify(data, null, 2);
 }
 
-fetchTools();
-fetchConfig();
+
+async function deploy() {
+  if (!confirm('Commit and push v2.0 changes to GitHub?')) return;
+  const out = document.getElementById('aiOutput');
+  out.textContent = 'Deploying...';
+  const res = await fetch('/api/deploy', {method: 'POST'});
+  const data = await res.json();
+  out.textContent = data.ok ? 'Deployed v2.0 to GitHub!' : `Deploy failed: ${data.error}`;
+}
 
 const socket = io();
+
 
 socket.on('status', function(data) {
   console.log(data.message);
 });
 
+socket.on('task_started', function(data) {
+  showTab('terminal');
+  currentTaskId = data.task_id;
+  document.getElementById('currentTaskLabel').textContent = `Task: ${data.cmd}`;
+  updateTask({id: data.task_id, cmd: data.cmd, status: data.status});
+});
+
+socket.on('task_update', function(data) {
+  updateTask(data);
+});
+
 socket.on('terminal_output', function(data) {
-  const term = document.getElementById('terminalOutput');
-  term.textContent += data.output;
-  term.scrollTop = term.scrollHeight;
+  if (currentTaskId && data.task_id === currentTaskId) {
+    appendTerminalOutput(data.output);
+  } else if (!currentTaskId) {
+    appendTerminalOutput(data.output);
+  }
 });
 
 socket.on('ai_response', function(data) {
@@ -213,20 +415,14 @@ socket.on('ai_response', function(data) {
   out.textContent = data.response || data.error;
 });
 
-async function runCommand(){
-  const cmd = document.getElementById('cmdInput').value.trim();
-  if(!cmd){return;}
-  socket.emit('run_command', {command: cmd});
-  document.getElementById('cmdInput').value = '';
-}
+fetchTools();
+fetchConfig();
+fetchTasks();
 
-async function aiChat(){
-  const text = document.getElementById('aiInput').value.trim();
-  if(!text){return;}
-  const out = document.getElementById('aiOutput');
-  out.textContent = 'Thinking...';
-  socket.emit('ai_chat', {messages: [{role: 'user', content: text}]});
-  document.getElementById('aiInput').value = '';
-}
+document.getElementById('toolSelect').addEventListener('change', setCommandPreview);
+document.getElementById('toolTarget').addEventListener('input', setCommandPreview);
+document.getElementById('toolArgs').addEventListener('input', setCommandPreview);
+document.getElementById('toolSilent').addEventListener('change', setCommandPreview);
+</script>
 </body>
 </html>

@@ -5,10 +5,14 @@ Serves the local dashboard UI and proxies OpenRouter AI.
 """
 import json
 import os
+import queue
 import shutil
+import signal
 import subprocess
 import threading
+import uuid
 import webbrowser
+from datetime import datetime
 from pathlib import Path
 
 from flask import Flask, Response, jsonify, request, send_from_directory
@@ -19,7 +23,63 @@ import requests
 ROOT = Path(__file__).resolve().parent
 UI_DIR = ROOT / "ui"
 CONFIG_FILE = ROOT / "config.json"
-DEFAULT_API_URL = "https://api.openrouter.ai/api/v1/chat/completions"
+DEFAULT_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+DEFAULT_MODEL = "google/gemini-2.0-flash-001"
+HTTP_REFERER = "https://zwanski.org"
+OPENROUTER_HEADERS = {
+    "Content-Type": "application/json",
+    "Referer": HTTP_REFERER,
+    "X-Title": "zwanski"
+}
+
+PROMPT_TEMPLATES = {
+    "subdomain_analysis": {
+        "title": "Subdomain Analysis",
+        "description": "Identify high-value targets and exposed services from reconnaissance output.",
+        "prompt": (
+            "You are a bug bounty reconnaissance analyst. Review the following reconnaissance output and identify the most valuable subdomains, services, and likely attack surfaces. "
+            "Highlight any high-risk hosts, exposed admin panels, cloud storage, or outdated technology. "
+            "Provide concise recommendations for follow-up tests.\n\n" 
+            "Recon output:\n{context}"
+        )
+    },
+    "code_review": {
+        "title": "Code Review",
+        "description": "Scan JavaScript and source outputs for hidden endpoints and credentials.",
+        "prompt": (
+            "You are a security researcher analyzing front-end code. Review the following JavaScript and related outputs to find hidden endpoints, hardcoded keys, unusual API patterns, or logic that can be abused. "
+            "Identify potential attack vectors, sensitive parameters, and payload ideas.\n\n"
+            "Code context:\n{context}"
+        )
+    },
+    "vulnerability_explanation": {
+        "title": "Vulnerability Explanation",
+        "description": "Explain complex attack chains and summarize impact for reporting.",
+        "prompt": (
+            "You are a bug bounty reporter. Read the following finding details and explain the vulnerability chain in a way that is easily understood by developers and security reviewers. "
+            "Describe the root cause, exploitation path, and impact.\n\n"
+            "Finding details:\n{context}"
+        )
+    },
+    "xss_sqli_payload": {
+        "title": "XSS/SQLi Payload Suggestion",
+        "description": "Suggest next-step payloads and exploitation paths based on scan results.",
+        "prompt": (
+            "You are a penetration tester. Based on the following scan output, propose concrete XSS or SQL injection payloads and the best next steps for validation. "
+            "Include one or two precise payload examples and a brief rationale.\n\n"
+            "Scan output:\n{context}"
+        )
+    },
+    "report_generation": {
+        "title": "Automated Report Generation",
+        "description": "Create a professional vulnerability report for HackerOne/Bugcrowd.",
+        "prompt": (
+            "You are a professional vulnerability report writer. Convert the following findings and scan output into a polished HackerOne/Bugcrowd report. "
+            "Use markdown sections: Summary, Impact, Reproduction, Remediation, and Notes. Keep it concise but professional.\n\n"
+            "Finding context:\n{context}"
+        )
+    }
+}
 
 ALLOWED_TOOLS = [
     "subfinder", "amass", "assetfinder", "dnsx", "puredns", "alterx", "chaos",
@@ -32,21 +92,27 @@ ALLOWED_TOOLS = [
 ]
 
 app = Flask(__name__, static_folder=str(UI_DIR))
-CORS(app)
+app.config["JSONIFY_PRETTYPRINT_REGULAR"] = False
+CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 
 def load_config():
     if CONFIG_FILE.exists():
-        return json.loads(CONFIG_FILE.read_text())
-    config = {
-        "openrouter_key": "",
-        "api_url": DEFAULT_API_URL,
-        "model": "anthropic/claude-3-haiku",
-        "theme": "dark"
-    }
-    save_config(config)
-    return config
+        config_dict = json.loads(CONFIG_FILE.read_text())
+    else:
+        config_dict = {
+            "openrouter_key": "",
+            "api_url": DEFAULT_API_URL,
+            "model": DEFAULT_MODEL,
+            "theme": "dark",
+            "ai_recon_enabled": true
+        }
+
+
+    config_dict['openrouter_key'] = os.getenv('OPENROUTER_API_KEY', config_dict.get('openrouter_key', ''))
+    return config_dict
+
 
 
 def save_config(config):
@@ -67,6 +133,216 @@ def get_tools_status():
             "description": ""
         })
     return tools
+
+
+class Task:
+    def __init__(self, cmd):
+        self.id = uuid.uuid4().hex
+        self.cmd = cmd
+        self.status = "pending"
+        self.stdout = ""
+        self.stderr = ""
+        self.returncode = None
+        self.created_at = datetime.utcnow().isoformat() + "Z"
+        self.updated_at = self.created_at
+        self.logs = []
+        self.proc = None
+
+    def append_output(self, text, stream="stdout"):
+        self.logs.append({"stream": stream, "text": text, "timestamp": datetime.utcnow().isoformat() + "Z"})
+        if stream == "stdout":
+            self.stdout += text
+        else:
+            self.stderr += text
+        self.updated_at = datetime.utcnow().isoformat() + "Z"
+
+    def to_dict(self, include_logs=False):
+        data = {
+            "id": self.id,
+            "cmd": self.cmd,
+            "status": self.status,
+            "returncode": self.returncode,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+            "stdout": self.stdout,
+            "stderr": self.stderr,
+            "summary": self.logs[-1]["text"] if self.logs else ""
+        }
+        if include_logs:
+            data["logs"] = self.logs
+        return data
+
+
+class TaskManager:
+    def __init__(self, persistence_file=None):
+        self.tasks = {}
+        self.queue = queue.Queue()
+        self.persistence_file = persistence_file or (ROOT / "tasks.json")
+        self._load_tasks()
+        self.worker = threading.Thread(target=self._worker_loop, daemon=True)
+        self.worker.start()
+
+    def _load_tasks(self):
+        if not self.persistence_file.exists():
+            return
+        try:
+            raw = json.loads(self.persistence_file.read_text())
+            for item in raw:
+                task = Task(item["cmd"])
+                task.id = item["id"]
+                task.status = item["status"]
+                if task.status == "running":
+                    task.status = "stopped"
+                task.stdout = item.get("stdout", "")
+                task.stderr = item.get("stderr", "")
+                task.returncode = item.get("returncode")
+                task.created_at = item.get("created_at", task.created_at)
+                task.updated_at = item.get("updated_at", task.updated_at)
+                task.logs = item.get("logs", [])
+                self.tasks[task.id] = task
+        except Exception:
+            pass
+
+    def _save_tasks(self):
+        try:
+            self.persistence_file.write_text(json.dumps([task.to_dict(include_logs=True) for task in self.tasks.values()], indent=2))
+        except Exception:
+            pass
+
+    def _worker_loop(self):
+        while True:
+            task = self.queue.get()
+            self._execute_task(task)
+            self.queue.task_done()
+
+    def submit(self, cmd):
+        task = Task(cmd)
+        self.tasks[task.id] = task
+        self._save_tasks()
+        self._emit_task_update(task)
+        self.queue.put(task)
+        return task
+
+    def _execute_task(self, task):
+        task.status = "running"
+        task.updated_at = datetime.utcnow().isoformat() + "Z"
+        self._save_tasks()
+        self._emit_task_update(task)
+        try:
+            proc = subprocess.Popen(
+                task.cmd,
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=str(ROOT)
+            )
+            task.proc = proc
+
+            def read_stream(stream, stream_name):
+                for line in iter(stream.readline, ""):
+                    if not line:
+                        break
+                    task.append_output(line, stream=stream_name)
+                    self._emit_task_output(task, line, stream_name)
+                    print(f"[task:{task.id}][{stream_name}] {line.rstrip()}", flush=True)
+                stream.close()
+
+            stdout_thread = threading.Thread(target=read_stream, args=(proc.stdout, "stdout"), daemon=True)
+            stderr_thread = threading.Thread(target=read_stream, args=(proc.stderr, "stderr"), daemon=True)
+            stdout_thread.start()
+            stderr_thread.start()
+            proc.wait()
+            stdout_thread.join()
+            stderr_thread.join()
+            task.returncode = proc.returncode
+            task.status = "completed" if proc.returncode == 0 else "failed"
+        except Exception as exc:
+            task.append_output(str(exc) + "\n", stream="stderr")
+            task.status = "failed"
+            task.returncode = -1
+        finally:
+            task.updated_at = datetime.utcnow().isoformat() + "Z"
+            self._save_tasks()
+            self._emit_task_update(task)
+
+    def _emit_task_output(self, task, text, stream):
+        socketio.emit(
+            "terminal_output",
+            {"task_id": task.id, "output": text, "stream": stream},
+            broadcast=True
+        )
+
+    def _emit_task_update(self, task):
+        socketio.emit("task_update", task.to_dict(include_logs=False), broadcast=True)
+
+    def list_tasks(self):
+        return [task.to_dict(include_logs=False) for task in sorted(self.tasks.values(), key=lambda t: t.created_at, reverse=True)]
+
+    def get_task(self, task_id):
+        return self.tasks.get(task_id)
+
+    def abort(self, task_id):
+        task = self.get_task(task_id)
+        if not task or not task.proc or task.proc.poll() is not None:
+            return False
+        try:
+            task.proc.terminate()
+            task.status = "cancelled"
+            task.updated_at = datetime.utcnow().isoformat() + "Z"
+            self._save_tasks()
+            self._emit_task_update(task)
+            return True
+        except Exception:
+            return False
+
+
+task_manager = TaskManager()
+
+
+def summarize_scan_text(raw_text, max_length=3500):
+    if not raw_text:
+        return ""
+    lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+    if len(lines) == 0:
+        return ""
+    if len(lines) <= 120:
+        result = "\n".join(lines)
+    else:
+        keywords = ["http", "404", "403", "500", "nginx", "amazonaws", "s3", "php", "js", "javascript", "xss", "sql", "error", "admin", "login", "api", "token", "cookie", "cloudfront", "docker", "aws", "host"]
+        selected = [line for line in lines if any(k in line.lower() for k in keywords)]
+        if len(selected) < 40:
+            selected = lines[:20] + selected + lines[-20:]
+        result = "\n".join(dict.fromkeys(selected))
+    if len(result) > max_length:
+        result = result[:max_length].rsplit("\n", 1)[0]
+    return result
+
+
+def build_prompt(template_id, context):
+    template = PROMPT_TEMPLATES.get(template_id)
+    if not template:
+        raise ValueError("Unknown prompt template")
+    summary = summarize_scan_text(context)
+    return template["prompt"].format(context=summary or context)
+
+
+def call_openrouter_api(api_url, key, payload):
+    headers = {"Authorization": f"Bearer {key}", **OPENROUTER_HEADERS}
+    response = requests.post(api_url, headers=headers, json=payload, timeout=45)
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as exc:
+        body = response.text
+        try:
+            parsed = response.json()
+            body = json.dumps(parsed, indent=2)
+        except ValueError:
+            pass
+        error_message = f"OpenRouter HTTP {response.status_code}: {body}"
+        app.logger.error(error_message)
+        raise RuntimeError(error_message) from exc
+    return response.json()
 
 
 @app.route("/")
@@ -99,6 +375,100 @@ def api_tools():
     return jsonify(get_tools_status())
 
 
+@app.route("/api/prompt-templates", methods=["GET"])
+def api_prompt_templates():
+    return jsonify([
+        {"id": key, "title": value["title"], "description": value["description"]}
+        for key, value in PROMPT_TEMPLATES.items()
+    ])
+
+
+@app.route("/api/ai/analyze", methods=["POST"])
+def api_ai_analyze():
+    config = load_config()
+    key = config.get("openrouter_key", "")
+    if not key:
+        return jsonify({"error": "OpenRouter API key is not set."}), 400
+
+    body = request.get_json(silent=True) or {}
+    task_id = body.get("task_id")
+    template_id = body.get("template_id")
+    if not task_id or not template_id:
+        return jsonify({"error": "task_id and template_id are required."}), 400
+
+    task = task_manager.get_task(task_id)
+    if not task:
+        return jsonify({"error": "Task not found."}), 404
+
+    prompt = build_prompt(template_id, task.stdout + "\n" + task.stderr)
+    api_url = config.get("api_url", DEFAULT_API_URL) or DEFAULT_API_URL
+    payload = {"model": config.get("model", DEFAULT_MODEL), "messages": [{"role": "user", "content": prompt}], "temperature": 0.2, "max_tokens": 800}
+
+    try:
+        data = call_openrouter_api(api_url, key, payload)
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        return jsonify({"ok": True, "analysis": content})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/ai/report", methods=["POST"])
+def api_ai_report():
+    config = load_config()
+    key = config.get("openrouter_key", "")
+    if not key:
+        return jsonify({"error": "OpenRouter API key is not set."}), 400
+
+    body = request.get_json(silent=True) or {}
+    task_id = body.get("task_id")
+    platform = body.get("platform", "HackerOne/Bugcrowd")
+    if not task_id:
+        return jsonify({"error": "task_id is required."}), 400
+
+    task = task_manager.get_task(task_id)
+    if not task:
+        return jsonify({"error": "Task not found."}), 404
+
+    prompt = PROMPT_TEMPLATES["report_generation"]["prompt"].format(context=task.stdout + "\n" + task.stderr + f"\n\nTarget platform: {platform}")
+    api_url = config.get("api_url", DEFAULT_API_URL) or DEFAULT_API_URL
+    payload = {"model": config.get("model", DEFAULT_MODEL), "messages": [{"role": "user", "content": prompt}], "temperature": 0.2, "max_tokens": 1000}
+
+    try:
+        data = call_openrouter_api(api_url, key, payload)
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        return jsonify({"ok": True, "report": content})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/control/restart", methods=["POST"])
+def api_control_restart():
+    def delayed_exit():
+        time.sleep(0.5)
+        os._exit(0)
+    threading.Thread(target=delayed_exit, daemon=True).start()
+    return jsonify({"ok": True, "message": "Restarting server."})
+
+
+@app.route("/api/control/stop", methods=["POST"])
+def api_control_stop():
+    stop_file = ROOT / ".monitor_stop"
+    try:
+        stop_file.write_text("stop")
+    except Exception:
+        pass
+    def delayed_exit():
+        time.sleep(0.5)
+        os._exit(0)
+    threading.Thread(target=delayed_exit, daemon=True).start()
+    return jsonify({"ok": True, "message": "Stopping server."})
+
+
+@app.route("/api/control/status", methods=["GET"])
+def api_control_status():
+    return jsonify({"ok": True, "status": "running"})
+
+
 @app.route("/api/ai/chat", methods=["POST"])
 def api_ai_chat():
     config = load_config()
@@ -108,7 +478,7 @@ def api_ai_chat():
 
     body = request.get_json(silent=True) or {}
     messages = body.get("messages", [])
-    model = body.get("model", config.get("model", "google/gemini-flash-1.5"))
+    model = body.get("model", config.get("model", DEFAULT_MODEL))
     api_url = config.get("api_url", DEFAULT_API_URL) or DEFAULT_API_URL
 
     payload = {
@@ -119,21 +489,11 @@ def api_ai_chat():
     }
 
     try:
-        r = requests.post(
-            api_url,
-            headers={
-                "Authorization": f"Bearer {key}",
-                "Content-Type": "application/json"
-            },
-            json=payload,
-            timeout=45
-        )
-        r.raise_for_status()
-        data = r.json()
+        data = call_openrouter_api(api_url, key, payload)
         content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
         return jsonify({"ok": True, "message": content})
     except Exception as exc:
-        return jsonify({"error": str(exc)})
+        return jsonify({"error": str(exc)}), 502
 
 
 @app.route("/api/ai/grade", methods=["POST"])
@@ -160,7 +520,7 @@ def api_ai_grade():
     ]
 
     payload = {
-        "model": config.get("model", "google/gemini-flash-1.5"),
+        "model": config.get("model", DEFAULT_MODEL),
         "messages": messages,
         "temperature": 0.2,
         "max_tokens": 300
@@ -168,21 +528,11 @@ def api_ai_grade():
     api_url = config.get("api_url", DEFAULT_API_URL) or DEFAULT_API_URL
 
     try:
-        r = requests.post(
-            api_url,
-            headers={
-                "Authorization": f"Bearer {key}",
-                "Content-Type": "application/json"
-            },
-            json=payload,
-            timeout=45
-        )
-        r.raise_for_status()
-        data = r.json()
+        data = call_openrouter_api(api_url, key, payload)
         content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
         return jsonify({"ok": True, "grade": content})
     except Exception as exc:
-        return jsonify({"error": str(exc)})
+        return jsonify({"error": str(exc)}), 502
 
 
 @app.route("/api/run", methods=["POST"])
@@ -193,20 +543,58 @@ def api_run():
         return jsonify({"error": "No command provided."}), 400
 
     first = cmd.split()[0]
-    if first not in ALLOWED_TOOLS:
+    if first not in ALLOWED_TOOLS and first not in {"oauth-mapper", "subdomain-recon", "./oauth-mapper", "./subdomain-recon"}:
         return jsonify({"error": f"Tool '{first}' is not allowed."}), 403
 
+    if body.get("sync"):
+        try:
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300, cwd=str(ROOT))
+            return jsonify({
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "returncode": result.returncode
+            })
+        except subprocess.TimeoutExpired:
+            return jsonify({"error": "Command timed out."}), 408
+        except Exception as exc:
+            return jsonify({"error": str(exc)})
+
+    task = task_manager.submit(cmd)
+    return jsonify({"ok": True, "task_id": task.id, "status": task.status})
+
+
+@app.route("/api/tasks", methods=["GET"])
+def api_tasks():
+    return jsonify(task_manager.list_tasks())
+
+
+@app.route("/api/tasks/<task_id>", methods=["GET"])
+def api_task_detail(task_id):
+    task = task_manager.get_task(task_id)
+    if not task:
+        return jsonify({"error": "Task not found."}), 404
+    return jsonify(task.to_dict(include_logs=True))
+
+
+@app.route("/api/tasks/<task_id>/abort", methods=["POST"])
+def api_task_abort(task_id):
+    if task_manager.abort(task_id):
+        return jsonify({"ok": True})
+    return jsonify({"error": "Unable to abort task."}), 400
+
+
+@app.route("/api/deploy", methods=["POST"])
+def api_deploy():
     try:
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300)
-        return jsonify({
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "returncode": result.returncode
-        })
-    except subprocess.TimeoutExpired:
-        return jsonify({"error": "Command timed out."}), 408
+        # Git deploy
+        result = subprocess.run('git add . && git commit -m "v2.0: Integrated C2 Controls, Auto-Port Recovery, Claude-Bug-Bounty Logic" || true && git push origin HEAD', shell=True, capture_output=True, text=True, cwd=str(ROOT), timeout=60)
+        if result.returncode == 0:
+            return jsonify({"ok": True, "output": result.stdout})
+        else:
+            return jsonify({"ok": False, "error": result.stderr}), 500
     except Exception as exc:
-        return jsonify({"error": str(exc)})
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
 
 
 @socketio.on('connect')
@@ -219,21 +607,12 @@ def handle_run_command(data):
     if not command:
         return
     first = command.split()[0]
-    if first not in ALLOWED_TOOLS:
+    if first not in ALLOWED_TOOLS and first not in {"oauth-mapper", "subdomain-recon", "./oauth-mapper", "./subdomain-recon"}:
         emit('terminal_output', {'output': f"Error: Tool '{first}' is not allowed.\n"})
         return
-    def run_cmd():
-        try:
-            proc = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            for line in iter(proc.stdout.readline, ''):
-                socketio.emit('terminal_output', {'output': line})
-            for line in iter(proc.stderr.readline, ''):
-                socketio.emit('terminal_output', {'output': line})
-            proc.wait()
-            socketio.emit('terminal_output', {'output': f"Command finished with code {proc.returncode}\n"})
-        except Exception as e:
-            socketio.emit('terminal_output', {'output': f"Error: {str(e)}\n"})
-    threading.Thread(target=run_cmd, daemon=True).start()
+
+    task = task_manager.submit(command)
+    emit('task_started', {'task_id': task.id, 'status': task.status, 'cmd': task.cmd})
 
 @socketio.on('ai_chat')
 def handle_ai_chat(data):
@@ -243,16 +622,31 @@ def handle_ai_chat(data):
         emit('ai_response', {'error': 'API key not set'})
         return
     messages = data.get('messages', [])
-    model = data.get('model', config.get('model'))
-    api_url = config.get('api_url', DEFAULT_API_URL)
+    model = data.get('model', config.get('model', DEFAULT_MODEL))
+    api_url = config.get('api_url', DEFAULT_API_URL) or DEFAULT_API_URL
     payload = {"model": model, "messages": messages, "temperature": 0.2, "max_tokens": 600}
     try:
-        r = requests.post(api_url, headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"}, json=payload, timeout=45)
-        r.raise_for_status()
-        content = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+        data = call_openrouter_api(api_url, key, payload)
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
         emit('ai_response', {'response': content})
     except Exception as e:
         emit('ai_response', {'error': str(e)})
+
+
+def clear_port(port):
+    if shutil.which("fuser"):
+        subprocess.run(["fuser", "-k", f"{port}/tcp"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return
+    if shutil.which("lsof"):
+        result = subprocess.run(["lsof", "-ti", f"tcp:{port}"], capture_output=True, text=True)
+        for line in result.stdout.splitlines():
+            if line.strip().isdigit():
+                try:
+                    os.kill(int(line.strip()), signal.SIGKILL)
+                except OSError:
+                    pass
+        return
+    print("Warning: no fuser or lsof found, unable to auto-clear port.", file=sys.stderr)
 
 
 def open_browser(port):
@@ -265,6 +659,7 @@ def open_browser(port):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 1337))
+    clear_port(port)
     threading.Timer(1.2, lambda: open_browser(port)).start()
     print(f"Starting ZWANSKI dashboard on http://localhost:{port}")
     socketio.run(app, host="0.0.0.0", port=port, debug=False)

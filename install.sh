@@ -74,27 +74,66 @@ cat > "$BIN_DIR/zwanski" <<'ZWN'
 PLATFORM="${ZWANSKI_INSTALL_DIR:-$HOME/.zwanski-bb}"
 PORT="${ZWANSKI_PORT:-1337}"
 VENV="$PLATFORM/.venv"
+DASHBOARD_API="http://localhost:$PORT/api"
 if [[ -f "$VENV/bin/activate" ]]; then
   source "$VENV/bin/activate"
 fi
+
+dashboard_available(){
+  curl -s --fail "$DASHBOARD_API/tasks" >/dev/null 2>&1
+}
+
+dashboard_submit(){
+  if [[ $# -eq 0 ]]; then
+    return 1
+  fi
+  payload=$(python3 -c 'import json,sys; print(json.dumps({"cmd":" ".join(sys.argv[1:])}))' "$@")
+  curl -s -X POST -H 'Content-Type: application/json' -d "$payload" "$DASHBOARD_API/run"
+}
+
 case "$1" in
   start|"")
     echo "Starting ZWANSKI dashboard on http://localhost:$PORT"
-    python3 "$PLATFORM/server.py"
+    python3 "$PLATFORM/server_monitor.py" --port "$PORT"
     ;;
   stop)
-    pkill -f "python3 .*server.py" && echo "Dashboard stopped" || echo "Dashboard not running"
+    pkill -f "python3 .*server_monitor.py" 2>/dev/null || true
+    pkill -f "python3 .*server.py" 2>/dev/null && echo "Dashboard stopped" || echo "Dashboard not running"
     ;;
   status)
-    curl -s "http://localhost:$PORT/api/tools" | python3 -c 'import json,sys;data=json.load(sys.stdin);print("Tools installed: {}/{}".format(sum(1 for t in data if t.get("installed")), len(data)))'
+    if dashboard_available; then
+      curl -s "$DASHBOARD_API/tools" | python3 -c 'import json,sys;data=json.load(sys.stdin);print("Tools installed: {}/{}".format(sum(1 for t in data if t.get("installed")), len(data)))'
+    else
+      echo "Dashboard offline. Use 'zwanski start' first."
+    fi
+    ;;
+  run)
+    shift
+    if [[ $# -eq 0 ]]; then
+      echo "Usage: zwanski run <command>"
+      exit 1
+    fi
+    if dashboard_available; then
+      dashboard_submit "$@"
+    else
+      exec "$@"
+    fi
     ;;
   recon)
     shift
-    exec "$PLATFORM/subdomain-recon" "$@"
+    if dashboard_available; then
+      dashboard_submit "subdomain-recon" "$@"
+    else
+      exec "$PLATFORM/subdomain-recon" "$@"
+    fi
     ;;
   oauth)
     shift
-    exec python3 "$PLATFORM/oauth-mapper" "$@"
+    if dashboard_available; then
+      dashboard_submit "oauth-mapper" "$@"
+    else
+      exec python3 "$PLATFORM/oauth-mapper" "$@"
+    fi
     ;;
   *)
     cat <<'EOF'
