@@ -16,7 +16,7 @@ import threading
 import time
 import uuid
 import webbrowser
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -110,7 +110,19 @@ ALLOWED_TOOLS = [
 app = Flask(__name__, static_folder=str(UI_DIR))
 app.config["JSONIFY_PRETTYPRINT_REGULAR"] = False
 CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
-socketio = SocketIO(app, cors_allowed_origins="*")
+# threading: avoids deprecated eventlet; server-side emits from worker threads need app_context (see emit_to_all).
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
+
+
+def utc_now_iso_z() -> str:
+    """UTC timestamp with Z suffix (replaces deprecated datetime.utcnow())."""
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def emit_to_all(event: str, data) -> None:
+    """Broadcast to every connected client from any thread (python-socketio 5+ has no broadcast= kwarg)."""
+    with app.app_context():
+        socketio.emit(event, data, namespace="/")
 
 
 def load_config():
@@ -166,18 +178,18 @@ class Task:
         self.stdout = ""
         self.stderr = ""
         self.returncode = None
-        self.created_at = datetime.utcnow().isoformat() + "Z"
+        self.created_at = utc_now_iso_z()
         self.updated_at = self.created_at
         self.logs = []
         self.proc = None
 
     def append_output(self, text, stream="stdout"):
-        self.logs.append({"stream": stream, "text": text, "timestamp": datetime.utcnow().isoformat() + "Z"})
+        self.logs.append({"stream": stream, "text": text, "timestamp": utc_now_iso_z()})
         if stream == "stdout":
             self.stdout += text
         else:
             self.stderr += text
-        self.updated_at = datetime.utcnow().isoformat() + "Z"
+        self.updated_at = utc_now_iso_z()
 
     def to_dict(self, include_logs=False):
         data = {
@@ -248,7 +260,7 @@ class TaskManager:
 
     def _execute_task(self, task):
         task.status = "running"
-        task.updated_at = datetime.utcnow().isoformat() + "Z"
+        task.updated_at = utc_now_iso_z()
         self._save_tasks()
         self._emit_task_update(task)
         try:
@@ -285,7 +297,7 @@ class TaskManager:
             task.status = "failed"
             task.returncode = -1
         finally:
-            task.updated_at = datetime.utcnow().isoformat() + "Z"
+            task.updated_at = utc_now_iso_z()
             self._save_tasks()
             self._emit_task_update(task)
             try:
@@ -294,14 +306,13 @@ class TaskManager:
                 pass
 
     def _emit_task_output(self, task, text, stream):
-        socketio.emit(
+        emit_to_all(
             "terminal_output",
             {"task_id": task.id, "output": text, "stream": stream},
-            broadcast=True
         )
 
     def _emit_task_update(self, task):
-        socketio.emit("task_update", task.to_dict(include_logs=False), broadcast=True)
+        emit_to_all("task_update", task.to_dict(include_logs=False))
 
     def list_tasks(self):
         return [task.to_dict(include_logs=False) for task in sorted(self.tasks.values(), key=lambda t: t.created_at, reverse=True)]
@@ -316,7 +327,7 @@ class TaskManager:
         try:
             task.proc.terminate()
             task.status = "cancelled"
-            task.updated_at = datetime.utcnow().isoformat() + "Z"
+            task.updated_at = utc_now_iso_z()
             self._save_tasks()
             self._emit_task_update(task)
             return True
@@ -370,9 +381,9 @@ def merge_warmap_from_text(text: str, seed_domain: str = ""):
         "hosts": host_list,
         "ports": sorted(mp),
         "edges": hosts_to_edges(host_list),
-        "updated_at": datetime.utcnow().isoformat() + "Z",
+        "updated_at": utc_now_iso_z(),
     }
-    socketio.emit("warmap_update", WARMAP_STATE, broadcast=True)
+    emit_to_all("warmap_update", WARMAP_STATE)
 
 
 # ======================
@@ -402,7 +413,7 @@ def get_system_health():
         "network_bytes_recv": net_io.bytes_recv,
         "network_sent_delta": sent_delta,
         "network_recv_delta": recv_delta,
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": utc_now_iso_z(),
     }
 
 
@@ -434,8 +445,8 @@ def system_monitor_loop():
         try:
             health = get_system_health()
             processes = get_process_list()
-            socketio.emit("system_health", health)
-            socketio.emit("process_update", {"processes": processes})
+            emit_to_all("system_health", health)
+            emit_to_all("process_update", {"processes": processes})
         except Exception as e:
             print(f"System monitor error: {e}")
         time.sleep(2)
@@ -472,7 +483,7 @@ class AgentPipeline:
         entry = f"[{datetime.now().strftime('%H:%M:%S')}] {message}"
         self.results["logs"].append(entry)
         print(f"[AgentPipeline] {entry}", flush=True)
-        socketio.emit("agent_log", {"message": entry, "phase": self.phase}, broadcast=True)
+        emit_to_all("agent_log", {"message": entry, "phase": self.phase})
 
     def _run_shell(self, cmd: str, timeout: int = 900) -> tuple[str, str, int]:
         self.log(cmd[:500])
@@ -636,10 +647,9 @@ class AgentPipeline:
             data = call_openrouter_api(api_url, key, payload)
             content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
             self.results["exploit_chains"].append(content)
-            socketio.emit(
+            emit_to_all(
                 "exploit_chains",
                 {"target": self.target_domain, "content": content},
-                broadcast=True,
             )
         except Exception as exc:
             self.results["exploit_chains"].append(f"chain_suggestion_failed: {exc}")

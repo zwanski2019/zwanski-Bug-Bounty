@@ -807,6 +807,18 @@ fetchConfig();
 fetchTasks();
 fetch('/api/warmap').then(r => r.json()).then(drawWarmap);
 
+/** REST fallback if Socket.IO events are delayed (threading mode / proxies). */
+async function pollHealthFallback() {
+  try {
+    const h = await fetch('/api/system/health');
+    if (h.ok) updateSystemHealth(await h.json());
+    const p = await fetch('/api/system/processes');
+    if (p.ok) updateProcessList(await p.json());
+  } catch (_) { /* offline */ }
+}
+setInterval(pollHealthFallback, 4000);
+pollHealthFallback();
+
 addActivityLog('[SYSTEM] Command center online');
 window.addEventListener('resize', () => drawWarmap(warmapData));
 setTimeout(() => drawWarmap(warmapData), 300);
