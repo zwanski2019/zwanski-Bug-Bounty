@@ -6,9 +6,12 @@ Serves the local dashboard UI and proxies OpenRouter AI.
 import json
 import os
 import queue
+import random
+import re
 import shutil
 import signal
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -16,6 +19,7 @@ import webbrowser
 from datetime import datetime
 from pathlib import Path
 
+from dotenv import load_dotenv
 from flask import Flask, Response, jsonify, request, send_from_directory
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit
@@ -23,7 +27,17 @@ import requests
 import psutil
 
 ROOT = Path(__file__).resolve().parent
+load_dotenv(ROOT / ".env")
 UI_DIR = ROOT / "ui"
+
+from zwanski_kb import TargetKnowledgeBase
+from shadow_client import shadow_request
+
+WARMAP_STATE = {"hosts": [], "ports": [], "edges": [], "updated_at": None}
+_NET_LAST = {"sent": None, "recv": None}
+
+_URL_HOST_RE = re.compile(r"(?:https?://)([a-zA-Z0-9][-a-zA-Z0-9.]*[a-zA-Z0-9])", re.I)
+_PORT_RE = re.compile(r":(\d{2,5})\b|port[:\s]+(\d{2,5})", re.I)
 CONFIG_FILE = ROOT / "config.json"
 DEFAULT_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_MODEL = "google/gemini-2.0-flash-001"
@@ -84,7 +98,7 @@ PROMPT_TEMPLATES = {
 }
 
 ALLOWED_TOOLS = [
-    "subfinder", "amass", "assetfinder", "dnsx", "puredns", "alterx", "chaos",
+    "subfinder", "subdominator", "amass", "assetfinder", "dnsx", "puredns", "alterx", "chaos",
     "httpx", "katana", "hakrawler", "waybackurls", "gau", "gospider",
     "naabu", "nmap", "rustscan", "nuclei", "nikto", "ffuf", "feroxbuster",
     "gobuster", "dirsearch", "trufflehog", "gitleaks", "dalfox", "sqlmap",
@@ -108,11 +122,18 @@ def load_config():
             "api_url": DEFAULT_API_URL,
             "model": DEFAULT_MODEL,
             "theme": "dark",
-            "ai_recon_enabled": true
+            "ai_recon_enabled": True,
         }
 
-
-    config_dict['openrouter_key'] = os.getenv('OPENROUTER_API_KEY', config_dict.get('openrouter_key', ''))
+    config_dict["openrouter_key"] = os.getenv(
+        "OPENROUTER_API_KEY", config_dict.get("openrouter_key", "")
+    )
+    config_dict["api_url"] = os.getenv(
+        "OPENROUTER_API_URL", config_dict.get("api_url", DEFAULT_API_URL)
+    )
+    config_dict["model"] = os.getenv(
+        "OPENROUTER_MODEL", config_dict.get("model", DEFAULT_MODEL)
+    )
     return config_dict
 
 
@@ -267,6 +288,10 @@ class TaskManager:
             task.updated_at = datetime.utcnow().isoformat() + "Z"
             self._save_tasks()
             self._emit_task_update(task)
+            try:
+                merge_warmap_from_text(task.stdout + "\n" + task.stderr, "")
+            except Exception:
+                pass
 
     def _emit_task_output(self, task, text, stream):
         socketio.emit(
@@ -302,15 +327,71 @@ class TaskManager:
 task_manager = TaskManager()
 
 # ======================
+# WAR MAP (attack surface graph hints from recon stdout)
+# ======================
+
+
+def parse_recon_warmap(text: str, seed_domain: str = ""):
+    hosts = set()
+    if seed_domain:
+        hosts.add(seed_domain.strip().lower().rstrip("."))
+    for m in _URL_HOST_RE.finditer(text or ""):
+        hosts.add(m.group(1).lower())
+    ports = set()
+    for m in _PORT_RE.finditer(text or ""):
+        p = m.group(1) or m.group(2)
+        if p:
+            pi = int(p)
+            if 1 <= pi <= 65535:
+                ports.add(pi)
+    hosts = {h for h in hosts if h and (("." in h) or h.replace("-", "").isalnum())}
+    return {"hosts": sorted(hosts), "ports": sorted(ports)}
+
+
+def hosts_to_edges(hosts):
+    edges = []
+    hset = set(hosts)
+    for h in hosts:
+        parts = h.split(".")
+        if len(parts) >= 3:
+            parent = ".".join(parts[1:])
+            if parent in hset:
+                edges.append({"from": parent, "to": h, "type": "subdomain"})
+    return edges
+
+
+def merge_warmap_from_text(text: str, seed_domain: str = ""):
+    global WARMAP_STATE
+    parsed = parse_recon_warmap(text, seed_domain)
+    mh = set(WARMAP_STATE.get("hosts", [])) | set(parsed["hosts"])
+    mp = set(WARMAP_STATE.get("ports", [])) | set(parsed["ports"])
+    host_list = sorted(mh)
+    WARMAP_STATE = {
+        "hosts": host_list,
+        "ports": sorted(mp),
+        "edges": hosts_to_edges(host_list),
+        "updated_at": datetime.utcnow().isoformat() + "Z",
+    }
+    socketio.emit("warmap_update", WARMAP_STATE, broadcast=True)
+
+
+# ======================
 # SYSTEM HEALTH MONITORING
 # ======================
 
 def get_system_health():
     """Get current CPU, RAM, and network stats."""
+    global _NET_LAST
     cpu_percent = psutil.cpu_percent(interval=0.1)
     memory = psutil.virtual_memory()
     net_io = psutil.net_io_counters()
-    
+    sent_delta = recv_delta = 0
+    if _NET_LAST["sent"] is not None:
+        sent_delta = max(0, net_io.bytes_sent - _NET_LAST["sent"])
+        recv_delta = max(0, net_io.bytes_recv - _NET_LAST["recv"])
+    _NET_LAST["sent"] = net_io.bytes_sent
+    _NET_LAST["recv"] = net_io.bytes_recv
+
     return {
         "cpu_percent": cpu_percent,
         "cpu_count": psutil.cpu_count(),
@@ -319,7 +400,9 @@ def get_system_health():
         "memory_percent": memory.percent,
         "network_bytes_sent": net_io.bytes_sent,
         "network_bytes_recv": net_io.bytes_recv,
-        "timestamp": datetime.utcnow().isoformat() + "Z"
+        "network_sent_delta": sent_delta,
+        "network_recv_delta": recv_delta,
+        "timestamp": datetime.utcnow().isoformat() + "Z",
     }
 
 
@@ -368,94 +451,204 @@ monitor_thread.start()
 # ======================
 
 class AgentPipeline:
-    """Multi-phase recon pipeline with AI agents."""
-    
+    """Multi-phase recon: CrawlAI-RAG → Subdominator/ProjectDiscovery → httpx/probe → NeuroSploit/nuclei."""
+
     def __init__(self, target_domain):
-        self.target_domain = target_domain
-        self.phase = "idle"  # idle, intelligence, recon, attack, complete
+        self.target_domain = target_domain.strip()
+        self.phase = "idle"
         self.results = {
-            "intelligence": [],  # CrawlAI-RAG results
-            "subdomains": [],   # Subfinder/Subdominator results
-            "endpoints": [],    # httpx/naabu results
-            "vulnerabilities": [],  # NeuroSploit findings
-            "logs": []
+            "intelligence": [],
+            "subdomains": [],
+            "endpoints": [],
+            "vulnerabilities": [],
+            "exploit_chains": [],
+            "logs": [],
         }
-        self.vector_db = []  # ChromaDB-like knowledge base
-    
+        self.kb = TargetKnowledgeBase(ROOT, self.target_domain)
+        self.subs_file = ROOT / "data" / "tmp" / f"subs_{self.target_domain.replace('.', '_')}.txt"
+        self.subs_file.parent.mkdir(parents=True, exist_ok=True)
+
     def log(self, message):
-        """Log message to pipeline."""
         entry = f"[{datetime.now().strftime('%H:%M:%S')}] {message}"
         self.results["logs"].append(entry)
-        print(f"[AgentPipeline] {entry}")
+        print(f"[AgentPipeline] {entry}", flush=True)
         socketio.emit("agent_log", {"message": entry, "phase": self.phase}, broadcast=True)
-    
+
+    def _run_shell(self, cmd: str, timeout: int = 900) -> tuple[str, str, int]:
+        self.log(cmd[:500])
+        try:
+            proc = subprocess.run(
+                cmd,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                cwd=str(ROOT),
+            )
+            return proc.stdout or "", proc.stderr or "", proc.returncode
+        except subprocess.TimeoutExpired:
+            return "", "timeout", -1
+        except Exception as exc:
+            return "", str(exc), -1
+
+    def _ghost_pause(self):
+        time.sleep(random.uniform(0.4, 2.2))
+
     def run_intelligence_phase(self):
-        """Phase A: CrawlAI-RAG for target intelligence."""
         self.phase = "intelligence"
-        self.log(f"INTELLIGENCE: Starting CrawlAI-RAG for {self.target_domain}")
-        
-        # Crawl the target
-        cmd = f"crawlai-rag --target {self.target_domain} --output /tmp/crawl_{self.target_domain}.json 2>/dev/null || echo 'crawlai-rag not found, using httpx'"
-        
-        # Fallback to basic crawling
-        if not shutil.which("crawlai-rag"):
-            cmd = f"httpx -u {self.target_domain} -silent -sc"
-        
-        self.log(f"Running: {cmd}")
-        self.results["intelligence"].append(f"Scanned {self.target_domain}")
-        self.log("INTELLIGENCE: Phase complete")
+        self.log(f"INTELLIGENCE: target={self.target_domain}")
+        self._ghost_pause()
+        if shutil.which("crawlai-rag"):
+            out, err, code = self._run_shell(
+                f'crawlai-rag --target "{self.target_domain}" --output "{self.subs_file}.crawl.json" 2>&1',
+                timeout=1200,
+            )
+            blob = out + err
+            self.kb.append(blob[:200_000], "crawlai-rag")
+            self.results["intelligence"].append(blob[:8000])
+        else:
+            url = f"https://{self.target_domain}"
+            try:
+                if os.environ.get("SHADOW_MODE", "").lower() in ("1", "true", "yes", "on"):
+                    self._ghost_pause()
+                    r = shadow_request("GET", url, timeout=45, allow_redirects=True)
+                    probe = f"{r.status_code}\n{r.text[:8000]}"
+                else:
+                    r = requests.get(url, timeout=45, allow_redirects=True)
+                    probe = f"{r.status_code}\n{r.text[:8000]}"
+                self.kb.append(probe, "shadow_probe" if os.environ.get("SHADOW_MODE") else "httpx_fallback_probe")
+                self.results["intelligence"].append(probe[:4000])
+            except Exception as exc:
+                self.results["intelligence"].append(f"probe_failed: {exc}")
+        self.log("INTELLIGENCE: phase complete")
         return self.results["intelligence"]
-    
+
     def run_recon_phase(self):
-        """Phase B: Subdominator + ProjectDiscovery."""
         self.phase = "recon"
-        self.log("RECON: Starting subdomain enumeration")
-        
-        # Run Subfinder
-        if shutil.which("subfinder"):
-            cmd = f"subfinder -d {self.target_domain} -silent -o /tmp/subs_{self.target_domain}.txt"
-            self.log(f"Running: {cmd}")
-            self.results["subdomains"].append(f"subfinder completed for {self.target_domain}")
-        
-        self.log("RECON: Phase complete")
+        self.log("RECON: subdomain enumeration (Subdominator / subfinder → dnsx)")
+        self._ghost_pause()
+        out_parts = []
+        if shutil.which("subdominator"):
+            o, e, _ = self._run_shell(
+                f'subdominator -d "{self.target_domain}" -s -o "{self.subs_file}" 2>&1',
+            )
+            blob = o + e
+            out_parts.append(blob)
+            self.kb.append(blob[:150_000], "subdominator")
+        elif shutil.which("subfinder"):
+            o, e, _ = self._run_shell(
+                f'subfinder -d "{self.target_domain}" -silent -o "{self.subs_file}" 2>&1',
+            )
+            blob = o + e
+            out_parts.append(blob)
+            self.kb.append(blob[:150_000], "subfinder")
+        else:
+            self.log("RECON: no subdominator/subfinder in PATH — skipping file enum")
+        if self.subs_file.exists():
+            merge_warmap_from_text(self.subs_file.read_text(errors="replace"), self.target_domain)
+        if shutil.which("dnsx") and self.subs_file.exists():
+            o, e, _ = self._run_shell(
+                f'dnsx -l "{self.subs_file}" -silent -a -resp 2>&1',
+                timeout=600,
+            )
+            out_parts.append(o + e)
+            self.kb.append((o + e)[:80_000], "dnsx")
+        self.results["subdomains"] = out_parts
+        self.log("RECON: phase complete")
         return self.results["subdomains"]
-    
+
     def run_attack_phase(self):
-        """Phase C: NeuroSploit for vulnerability detection."""
         self.phase = "attack"
-        self.log("ATTACK: Starting NeuroSploit analysis")
-        
-        # Run basic vulnerability scan
+        self.log("ATTACK: live hosts + vuln scan (httpx → nuclei / neurosploit)")
+        self._ghost_pause()
+        lines = []
+        if shutil.which("httpx"):
+            if self.subs_file.exists():
+                o, e, _ = self._run_shell(
+                    f'httpx -l "{self.subs_file}" -silent -sc -title -tech-detect -timeout 30 2>&1',
+                    timeout=1200,
+                )
+            else:
+                o, e, _ = self._run_shell(
+                    f'httpx -u "https://{self.target_domain}" -silent -sc -title -tech-detect 2>&1',
+                    timeout=600,
+                )
+            blob = o + e
+            lines.append(blob)
+            self.kb.append(blob[:200_000], "httpx")
+            merge_warmap_from_text(blob, self.target_domain)
+        if shutil.which("neurosploit"):
+            o, e, _ = self._run_shell(
+                f'neurosploit --target "https://{self.target_domain}" 2>&1',
+                timeout=900,
+            )
+            blob = o + e
+            lines.append(blob)
+            self.kb.append(blob[:120_000], "neurosploit")
         if shutil.which("nuclei"):
-            cmd = f"nuclei -u https://{self.target_domain} -silent -nc"
-            self.log(f"Running: {cmd}")
-            self.results["vulnerabilities"].append(f"nuclei scan completed for {self.target_domain}")
-        
-        self.log("ATTACK: Phase complete")
+            o, e, _ = self._run_shell(
+                f'nuclei -u "https://{self.target_domain}" -silent -nc 2>&1',
+                timeout=900,
+            )
+            lines.append(o + e)
+            self.kb.append((o + e)[:200_000], "nuclei")
+        self.results["endpoints"] = lines[:3]
+        self.results["vulnerabilities"] = lines
+        self.log("ATTACK: phase complete")
         return self.results["vulnerabilities"]
-    
+
     def run_full_pipeline(self):
-        """Execute full agentic pipeline."""
-        self.log(f"Starting full pipeline for {self.target_domain}")
-        
-        # Phase A
-        self.run_intelligence_phase()
-        
-        # Phase B  
-        self.run_recon_phase()
-        
-        # Phase C
-        self.run_attack_phase()
-        
-        self.phase = "complete"
-        self.log("PIPELINE: Full reconnaissance complete")
+        self.log(f"PIPELINE start: {self.target_domain}")
+        try:
+            self.run_intelligence_phase()
+            self.run_recon_phase()
+            self.run_attack_phase()
+            self._suggest_chains_from_kb()
+        finally:
+            self.phase = "complete"
+            self.log("PIPELINE: complete")
         return self.results
-    
+
+    def _suggest_chains_from_kb(self):
+        ctx = self.kb.query("redirect open API admin upload oauth graphql websocket ssrf xss sqli")
+        if not ctx.strip():
+            return
+        vuln_snip = "\n".join(self.results.get("vulnerabilities", []))[:6000]
+        config = load_config()
+        key = config.get("openrouter_key", "")
+        if not key:
+            self.results["exploit_chains"].append("Set OPENROUTER_API_KEY for exploit-chain suggestions.")
+            return
+        prompt = (
+            "You are an offensive security advisor. Given recon text, suggest 2–4 concise exploit CHAINS "
+            "(e.g. Open Redirect → SSRF via a specific path hypothesis). "
+            "Focus on business-logic and chaining, not generic CVEs. Output markdown bullets.\n\n"
+            f"=== Knowledge snippets ===\n{ctx[:7000]}\n\n=== Scan lines ===\n{vuln_snip}"
+        )
+        try:
+            api_url = config.get("api_url", DEFAULT_API_URL) or DEFAULT_API_URL
+            payload = {
+                "model": config.get("model", DEFAULT_MODEL),
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.15,
+                "max_tokens": 900,
+            }
+            data = call_openrouter_api(api_url, key, payload)
+            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            self.results["exploit_chains"].append(content)
+            socketio.emit(
+                "exploit_chains",
+                {"target": self.target_domain, "content": content},
+                broadcast=True,
+            )
+        except Exception as exc:
+            self.results["exploit_chains"].append(f"chain_suggestion_failed: {exc}")
+
     def to_dict(self):
         return {
             "target": self.target_domain,
             "phase": self.phase,
-            "results": self.results
+            "results": self.results,
         }
 
 
@@ -502,16 +695,47 @@ heartbeat_thread = threading.Thread(target=run_heartbeat_monitor, daemon=True)
 heartbeat_thread.start()
 
 
-def auto_git_push(message):
-    """Auto-commit and push findings."""
+def git_sync_safe(message: str) -> dict:
+    """Optional commit + push when AUTO_GIT_SYNC is enabled (use with care on public repos)."""
+    flag = (os.environ.get("AUTO_GIT_SYNC") or "").lower()
+    if flag not in ("1", "true", "yes", "on"):
+        return {"ok": False, "skipped": True, "reason": "AUTO_GIT_SYNC not enabled"}
+    safe_msg = re.sub(r"[^\w\s\-.,:;]", "", message)[:100].strip() or "zwanski: automated sync"
+    branch = os.environ.get("GIT_BRANCH", "main")
     try:
-        result = subprocess.run(
-            f'git add . && git commit -m "{message}" && git push origin main',
-            shell=True, capture_output=True, text=True, cwd=str(ROOT), timeout=30
+        add = subprocess.run(
+            ["git", "add", "-A"],
+            capture_output=True,
+            text=True,
+            cwd=str(ROOT),
+            timeout=60,
         )
-        return result.returncode == 0
-    except Exception:
-        return False
+        if add.returncode != 0:
+            return {"ok": False, "error": add.stderr or "git add failed"}
+        commit = subprocess.run(
+            ["git", "commit", "-m", safe_msg],
+            capture_output=True,
+            text=True,
+            cwd=str(ROOT),
+            timeout=60,
+        )
+        if commit.returncode != 0 and "nothing to commit" not in (commit.stdout + commit.stderr).lower():
+            return {"ok": False, "error": commit.stderr or commit.stdout or "git commit failed"}
+        push = subprocess.run(
+            ["git", "push", "origin", branch],
+            capture_output=True,
+            text=True,
+            cwd=str(ROOT),
+            timeout=120,
+        )
+        return {
+            "ok": push.returncode == 0,
+            "stdout": push.stdout,
+            "stderr": push.stderr,
+            "branch": branch,
+        }
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
 
 
 def summarize_scan_text(raw_text, max_length=3500):
@@ -1013,19 +1237,129 @@ Make it suitable for {platform} submission. Use clear markdown formatting."""
         report_filename = ROOT / f"report_{target}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
         report_filename.write_text(content)
         
+        sync = git_sync_safe(f"Report generated for {target}")
         return jsonify({
             "ok": True,
             "report": content,
-            "report_file": str(report_filename)
+            "report_file": str(report_filename),
+            "git_sync": sync,
         })
     except Exception as exc:
         return jsonify({"error": str(exc)}), 502
 
 
+@app.route("/api/warmap", methods=["GET"])
+def api_warmap():
+    return jsonify(WARMAP_STATE)
+
+
+@app.route("/api/openclaw/commands", methods=["GET"])
+def api_openclaw_commands():
+    bridge = ROOT / "openclaw_bridge.json"
+    if not bridge.exists():
+        return jsonify({"error": "openclaw_bridge.json missing"}), 404
+    return jsonify(json.loads(bridge.read_text()))
+
+
+@app.route("/api/kb/query", methods=["POST"])
+def api_kb_query():
+    body = request.get_json(silent=True) or {}
+    target = (body.get("target") or "").strip()
+    question = (body.get("question") or "").strip()
+    if not target or not question:
+        return jsonify({"error": "target and question required"}), 400
+    kb = TargetKnowledgeBase(ROOT, target)
+    chunks = kb.query(question)
+    return jsonify({"ok": True, "chunks": chunks, "chars": len(chunks)})
+
+
+@app.route("/api/ai/rag-analyze", methods=["POST"])
+def api_ai_rag_analyze():
+    config = load_config()
+    key = config.get("openrouter_key", "")
+    if not key:
+        return jsonify({"error": "OpenRouter API key is not set."}), 400
+    body = request.get_json(silent=True) or {}
+    target = (body.get("target") or "").strip()
+    if not target:
+        return jsonify({"error": "target required"}), 400
+    kb = TargetKnowledgeBase(ROOT, target)
+    ctx = kb.query(body.get("focus") or "business logic auth workflow payment upload export admin oauth api")
+    if not ctx.strip():
+        return jsonify({"error": "No knowledge base yet for this target. Run the agent pipeline first."}), 400
+    prompt = (
+        "You are a bug bounty hunter prioritizing business-logic flaws. "
+        "Using ONLY the provided recon context, list plausible high-impact logic flaws "
+        "(IDOR, workflow abuse, feature flags, multi-step chains). Avoid generic CVE boilerplate.\n\n"
+        f"=== Context ===\n{ctx[:9000]}"
+    )
+    api_url = config.get("api_url", DEFAULT_API_URL) or DEFAULT_API_URL
+    payload = {
+        "model": config.get("model", DEFAULT_MODEL),
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.2,
+        "max_tokens": 1000,
+    }
+    try:
+        data = call_openrouter_api(api_url, key, payload)
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        return jsonify({"ok": True, "analysis": content})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/ai/exploit-chain", methods=["POST"])
+def api_ai_exploit_chain():
+    config = load_config()
+    key = config.get("openrouter_key", "")
+    if not key:
+        return jsonify({"error": "OpenRouter API key is not set."}), 400
+    body = request.get_json(silent=True) or {}
+    finding = (body.get("finding") or "").strip()
+    target = (body.get("target") or "").strip()
+    if not finding:
+        return jsonify({"error": "finding text required"}), 400
+    kb_ctx = ""
+    if target:
+        kb_ctx = TargetKnowledgeBase(ROOT, target).query(finding)[:6000]
+    prompt = (
+        "Given a confirmed or suspected vulnerability, propose one or two realistic exploit CHAINS "
+        "(next hops, endpoints to test, escalation paths). Be specific to the stack hints in the text. "
+        "Output markdown.\n\n"
+        f"=== Finding ===\n{finding}\n\n=== Optional recon ===\n{kb_ctx}"
+    )
+    api_url = config.get("api_url", DEFAULT_API_URL) or DEFAULT_API_URL
+    payload = {
+        "model": config.get("model", DEFAULT_MODEL),
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.15,
+        "max_tokens": 800,
+    }
+    try:
+        data = call_openrouter_api(api_url, key, payload)
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        return jsonify({"ok": True, "chains": content})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/findings/confirm", methods=["POST"])
+def api_findings_confirm():
+    body = request.get_json(silent=True) or {}
+    title = (body.get("title") or "Confirmed finding").strip()
+    severity = (body.get("severity") or "").strip().lower()
+    trigger = severity in ("high", "critical") or body.get("force_sync") is True
+    if not trigger:
+        return jsonify({"ok": True, "git_sync": {"skipped": True, "reason": "severity below threshold"}})
+    msg = f"Finding confirmed [{severity}]: {title}"
+    sync = git_sync_safe(msg)
+    return jsonify({"ok": True, "git_sync": sync})
+
 
 @socketio.on('connect')
 def handle_connect():
-    emit('status', {'message': 'Connected to ZWANSKI Dashboard'})
+    emit("status", {"message": "Connected to ZWANSKI Dashboard"})
+    emit("warmap_update", WARMAP_STATE)
 
 @socketio.on('run_command')
 def handle_run_command(data):
@@ -1059,12 +1393,46 @@ def handle_ai_chat(data):
         emit('ai_response', {'error': str(e)})
 
 
-def clear_port(port):
+def free_port(port: int) -> None:
+    """Terminate listeners on TCP port using psutil, then fall back to fuser/lsof."""
+    pids = set()
+    try:
+        for conn in psutil.net_connections(kind="inet"):
+            if not conn.laddr:
+                continue
+            if conn.laddr.port != port:
+                continue
+            if conn.status != psutil.CONN_LISTEN:
+                continue
+            if conn.pid:
+                pids.add(conn.pid)
+    except (psutil.AccessDenied, AttributeError):
+        pass
+    for pid in pids:
+        try:
+            proc = psutil.Process(pid)
+            proc.terminate()
+            try:
+                proc.wait(timeout=3)
+            except psutil.TimeoutExpired:
+                proc.kill()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    if pids:
+        time.sleep(0.3)
     if shutil.which("fuser"):
-        subprocess.run(["fuser", "-k", f"{port}/tcp"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(
+            ["fuser", "-k", f"{port}/tcp"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
         return
     if shutil.which("lsof"):
-        result = subprocess.run(["lsof", "-ti", f"tcp:{port}"], capture_output=True, text=True)
+        result = subprocess.run(
+            ["lsof", "-ti", f"tcp:{port}"],
+            capture_output=True,
+            text=True,
+        )
         for line in result.stdout.splitlines():
             if line.strip().isdigit():
                 try:
@@ -1072,7 +1440,11 @@ def clear_port(port):
                 except OSError:
                     pass
         return
-    print("Warning: no fuser or lsof found, unable to auto-clear port.", file=sys.stderr)
+    if not pids:
+        print(
+            "Warning: could not detect process on port; install fuser or lsof if bind fails.",
+            file=sys.stderr,
+        )
 
 
 def open_browser(port):
@@ -1085,7 +1457,7 @@ def open_browser(port):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 1337))
-    clear_port(port)
+    free_port(port)
     threading.Timer(1.2, lambda: open_browser(port)).start()
     print(f"Starting ZWANSKI dashboard on http://localhost:{port}")
     socketio.run(app, host="0.0.0.0", port=port, debug=False)

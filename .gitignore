@@ -1,8 +1,10 @@
 # Recon output — never commit target data
 recon_*/
+data/
 targets/
 *.log
 *.json
+!openclaw_bridge.json
 *.xml
 *.csv
 *.html

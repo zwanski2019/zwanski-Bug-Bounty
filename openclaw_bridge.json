@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "description": "Map OpenClaw / mobile automation skills to zwanski platform commands (shell on the host running the dashboard).",
+  "env_hints": {
+    "ZWANSKI_ROOT": "Directory containing server.py (platform root).",
+    "PORT": "Dashboard port, default 1337."
+  },
+  "skills": [
+    {
+      "id": "zwanski.dashboard.start",
+      "label": "Start dashboard (monitored)",
+      "shell": "cd \"${ZWANSKI_ROOT}\" && \"${PYTHON:-python3}\" server_monitor.py",
+      "openclaw_hint": "Long-running; confirm ZWANSKI_ROOT points at the clone."
+    },
+    {
+      "id": "zwanski.dashboard.stop",
+      "label": "Stop dashboard",
+      "shell": "touch \"${ZWANSKI_ROOT}/.monitor_stop\"",
+      "openclaw_hint": "Creates stop flag; monitor exits cleanly."
+    },
+    {
+      "id": "zwanski.recon.subdomain_chain",
+      "label": "Run bundled subdomain recon script",
+      "shell": "cd \"${ZWANSKI_ROOT}\" && bash scripts/zwanski-subdomain-chain.sh",
+      "openclaw_hint": "Requires targets/ or script args as you configure locally."
+    },
+    {
+      "id": "zwanski.recon.oauth_mapper",
+      "label": "OAuth / OIDC flow mapper",
+      "shell": "cd \"${ZWANSKI_ROOT}\" && python3 scripts/zwanski-oauth-mapper.py",
+      "openclaw_hint": "Interactive; better triggered from desktop unless headless mode added."
+    },
+    {
+      "id": "zwanski.cli.subdomain_recon",
+      "label": "Wrapper: subdomain-recon",
+      "shell": "cd \"${ZWANSKI_ROOT}\" && ./subdomain-recon",
+      "openclaw_hint": "Same as Tools tab recon chain."
+    },
+    {
+      "id": "zwanski.cli.oauth_mapper",
+      "label": "Wrapper: oauth-mapper",
+      "shell": "cd \"${ZWANSKI_ROOT}\" && ./oauth-mapper",
+      "openclaw_hint": "Same as Tools tab OAuth mapper."
+    },
+    {
+      "id": "zwanski.api.agent_pipeline",
+      "label": "HTTP: start agent pipeline",
+      "http": {
+        "method": "POST",
+        "url": "http://127.0.0.1:${PORT:-1337}/api/agent/run",
+        "json_body": {"target": "{{domain}}"}
+      },
+      "openclaw_hint": "Replace {{domain}}; requires dashboard running."
+    },
+    {
+      "id": "zwanski.api.report_finalize",
+      "label": "HTTP: generate markdown report",
+      "http": {
+        "method": "POST",
+        "url": "http://127.0.0.1:${PORT:-1337}/api/report/finalize",
+        "json_body": {"target": "{{domain}}", "platform": "HackerOne", "pipeline_id": null}
+      },
+      "openclaw_hint": "Needs OPENROUTER_API_KEY in .env."
+    },
+    {
+      "id": "zwanski.api.health",
+      "label": "HTTP: integrated tools health",
+      "http": {
+        "method": "GET",
+        "url": "http://127.0.0.1:${PORT:-1337}/api/health"
+      }
+    }
+  ]
+}

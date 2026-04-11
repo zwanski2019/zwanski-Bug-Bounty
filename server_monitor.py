@@ -12,6 +12,8 @@ import time
 from pathlib import Path
 from shutil import which
 
+import psutil
+
 ROOT = Path(__file__).resolve().parent
 SERVER_SCRIPT = ROOT / "server.py"
 WATCH_PATHS = [ROOT / "server.py", ROOT / "config.json", ROOT / "ui"]
@@ -41,6 +43,28 @@ def read_mtimes(paths):
 
 
 def kill_port_process(port):
+    pids = set()
+    try:
+        for conn in psutil.net_connections(kind="inet"):
+            if not conn.laddr or conn.laddr.port != port:
+                continue
+            if conn.status != psutil.CONN_LISTEN or not conn.pid:
+                continue
+            pids.add(conn.pid)
+    except (psutil.AccessDenied, AttributeError):
+        pass
+    for pid in pids:
+        try:
+            proc = psutil.Process(pid)
+            proc.terminate()
+            try:
+                proc.wait(timeout=3)
+            except psutil.TimeoutExpired:
+                proc.kill()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    if pids:
+        time.sleep(0.25)
     if which("fuser"):
         subprocess.run(["fuser", "-k", f"{port}/tcp"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return
@@ -53,7 +77,8 @@ def kill_port_process(port):
                 except OSError:
                     pass
         return
-    print("Warning: no fuser or lsof found, unable to auto-kill port occupant.", file=sys.stderr)
+    if not pids:
+        print("Warning: no fuser/lsof and psutil found no listener; bind may fail.", file=sys.stderr)
 
 
 def safe_terminate(proc):
