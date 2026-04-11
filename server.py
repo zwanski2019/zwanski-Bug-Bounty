@@ -462,6 +462,57 @@ class AgentPipeline:
 # Active agent pipelines
 agent_pipelines = {}
 
+# ======================
+# MOBILE NODE STATUS (OpenClaw)
+# ======================
+
+class MobileNode:
+    """OpenClaw mobile node status tracker."""
+    
+    def __init__(self):
+        self.status = "offline"  # online, offline, running
+        self.last_heartbeat = None
+        self.channel = None  # telegram, whatsapp, discord
+        self.pending_approval = []
+        self.heartbeat_enabled = False
+    
+    def to_dict(self):
+        return {
+            "status": self.status,
+            "last_heartbeat": self.last_heartbeat,
+            "channel": self.channel,
+            "pending_approval": self.pending_approval,
+            "heartbeat_enabled": self.heartbeat_enabled
+        }
+
+
+mobile_node = MobileNode()
+
+
+def run_heartbeat_monitor():
+    """Background heartbeat monitor for OpenClaw auto-recon."""
+    while True:
+        if mobile_node.heartbeat_enabled:
+            # Check for new targets every heartbeat_interval
+            pass  # Placeholder for autonomous recon
+        time.sleep(60)
+
+
+heartbeat_thread = threading.Thread(target=run_heartbeat_monitor, daemon=True)
+heartbeat_thread.start()
+
+
+def auto_git_push(message):
+    """Auto-commit and push findings."""
+    try:
+        result = subprocess.run(
+            f'git add . && git commit -m "{message}" && git push origin main',
+            shell=True, capture_output=True, text=True, cwd=str(ROOT), timeout=30
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
 
 def summarize_scan_text(raw_text, max_length=3500):
     if not raw_text:

@@ -98,6 +98,57 @@ if ! has crawlai-rag; then
   fi
 fi
 
+# ======================
+# OpenClaw Mobile C2
+# ======================
+
+info "Checking for OpenClaw Mobile C2..."
+
+# OpenClaw (Mobile C2 - WhatsApp/Telegram/Discord)
+if ! has openclaw; then
+  if [[ ! -d "$PLATFORM_DIR/OpenClaw" ]]; then
+    info "Cloning OpenClaw..."
+    git clone --depth=1 https://github.com/openclaw/openclaw "$PLATFORM_DIR/OpenClaw" 2>/dev/null || true
+  fi
+fi
+
+# Create OpenClaw skills for ZWANSKI tools
+info "Creating OpenClaw skills..."
+mkdir -p "$PLATFORM_DIR/OpenClaw/skills"
+
+# NeuroSploit skill
+cat > "$PLATFORM_DIR/OpenClaw/skills/neurosploit.md" <<'EOF'
+# NeuroSploit Skill
+description: AI-driven payload generation and exploit chaining
+usage: /run neurosploit --target <domain>
+EOF
+
+# CrawlAI-RAG skill  
+cat > "$PLATFORM_DIR/OpenClaw/skills/crawlai-rag.md" <<'EOF'
+# CrawlAI-RAG Skill
+description: Website crawling and knowledge extraction
+usage: /run crawlai --target <domain>
+EOF
+
+# Subdominator skill
+cat > "$PLATFORM_DIR/OpenClaw/skills/subdominator.md" <<'EOF'
+# Subdominator Skill
+description: Passive subdomain enumeration
+usage: /run subdominator --target <domain>
+EOF
+
+# Create secure approval gate config
+cat > "$PLATFORM_DIR/OpenClaw/secure_config.json" <<'EOF'
+{
+  "approval_required": true,
+  "auto_recon": true,
+  "exploit_commands": ["neurosploit", "sqlmap", "nuclei"],
+  "safe_commands": ["subfinder", "httpx", "crawlai-rag"],
+  "github_auto_sync": true,
+  "heartbeat_interval_minutes": 30
+}
+EOF
+
 info "Creating platform launcher..."
 cat > "$BIN_DIR/zwanski" <<'ZWN'
 #!/usr/bin/env bash
