@@ -351,8 +351,8 @@ def system_monitor_loop():
         try:
             health = get_system_health()
             processes = get_process_list()
-            socketio.emit("system_health", health, broadcast=True)
-            socketio.emit("process_update", {"processes": processes}, broadcast=True)
+            socketio.emit("system_health", health)
+            socketio.emit("process_update", {"processes": processes})
         except Exception as e:
             print(f"System monitor error: {e}")
         time.sleep(2)
