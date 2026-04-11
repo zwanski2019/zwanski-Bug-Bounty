@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+defaults:
+  run:
+    working-directory: zwanski-watchdog
+
+jobs:
+  monorepo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: npm install (workspaces)
+        run: npm install
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: TypeScript build (best effort)
+        run: npx tsc -p packages/shared-types/tsconfig.json && npx tsc -p packages/disclosure/tsconfig.json || true
+
+      - name: Go scanner
+        working-directory: zwanski-watchdog/apps/scanner
+        run: go test ./... && go build -o /tmp/watchdog ./cmd/watchdog
+
+      - name: Python classifier
+        working-directory: zwanski-watchdog/apps/classifier
+        run: |
+          pip install -r requirements.txt
+          python -m compileall -q src main.py

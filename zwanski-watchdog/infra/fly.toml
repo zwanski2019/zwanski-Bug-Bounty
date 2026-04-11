@@ -1,0 +1,16 @@
+# Example Fly.io app — duplicate per service (api, web, classifier, scanner)
+app = "zwanski-watchdog-api"
+primary_region = "fra"
+
+[build]
+  dockerfile = "../apps/api/Dockerfile"
+
+[http_service]
+  internal_port = 4000
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+
+[[vm]]
+  memory = "512mb"
+  cpus = 1
