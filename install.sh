@@ -64,9 +64,27 @@ fi
 info "Running setup script..."
 bash setup.sh
 
-info "Installing dashboard dependencies..."
+info "Ensuring full dashboard Python stack (Flask-SocketIO, psutil, dotenv, …)..."
 source "$PLATFORM_DIR/.venv/bin/activate"
-pip install -q flask flask-cors requests || warn "Failed to install dashboard dependencies"
+pip install -q -r "$PLATFORM_DIR/requirements.txt" || warn "Some Python deps failed — check requirements.txt"
+
+# ======================
+# RECON CLI TOOLCHAIN (ProjectDiscovery + helpers via Go)
+# ======================
+
+info "Installing optional recon CLIs (subfinder, httpx, nuclei, dnsx, …)…"
+if ! has go; then
+  if [[ "${ZWANSKI_INSTALL_GO:-1}" == "1" ]]; then
+    info "Go not found — trying package manager (set ZWANSKI_INSTALL_GO=0 to skip)..."
+    install_pkg golang-go || warn "Could not install Go automatically"
+  fi
+fi
+if has go; then
+  bash "$PLATFORM_DIR/setup-tools.sh" || warn "Some Go tools failed — re-run: bash $PLATFORM_DIR/setup-tools.sh"
+else
+  warn "Go still not on PATH — dashboard works; for CLI tools install Go then:"
+  warn "  bash $PLATFORM_DIR/setup-tools.sh"
+fi
 
 # ======================
 # ADDITIONAL SECURITY TOOLS
@@ -158,6 +176,13 @@ VENV="$PLATFORM/.venv"
 DASHBOARD_API="http://localhost:$PORT/api"
 if [[ -f "$VENV/bin/activate" ]]; then
   source "$VENV/bin/activate"
+fi
+# ProjectDiscovery tools from setup-tools.sh live here
+if command -v go >/dev/null 2>&1; then
+  GOPATH_BIN="$(go env GOPATH 2>/dev/null)/bin"
+  if [[ -d "$GOPATH_BIN" ]]; then
+    export PATH="$GOPATH_BIN:$PATH"
+  fi
 fi
 
 dashboard_available(){

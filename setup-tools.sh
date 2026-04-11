@@ -1,8 +1,8 @@
 #!/bin/bash
-# Optional: Install Go-based external recon tools for subdomain-chain.sh
-# Requires: Go 1.16+ (install from https://golang.org/doc/install)
+# Install Go-based recon tools (ProjectDiscovery + helpers) for the dashboard & scripts.
+# Safe to re-run. Individual tool failures do not stop the rest.
 
-set -e
+set -u
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -15,57 +15,56 @@ err() { echo -e "${RED}[-]${NC} $1"; exit 1; }
 
 echo ""
 echo "═══════════════════════════════════════════════════════════════"
-echo "  Installing Optional Recon Tools"
+echo "  Installing recon CLI tools (Go)"
 echo "═══════════════════════════════════════════════════════════════"
 echo ""
 
-# Check if Go is installed
 if ! command -v go &> /dev/null; then
-    err "Go is not installed. Please install Go 1.16+ from https://golang.org/doc/install"
+    warn "Go is not installed. Install it, then re-run this script:"
+    warn "  Debian/Ubuntu: sudo apt install golang-go"
+    warn "  macOS: brew install go"
+    warn "  https://go.dev/dl/"
+    exit 0
 fi
 
-log "Installing projectdiscovery tools..."
+export PATH="$PATH:$(go env GOPATH)/bin"
 
-# Subfinder
-log "Installing subfinder..."
-go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
+go_install() {
+    local label="$1"
+    shift
+    log "Installing $label..."
+    if go install -v "$@"; then
+        return 0
+    fi
+    warn "$label install failed (network, proxy, or version) — skip and continue"
+    return 0
+}
 
-# HTTPx
-log "Installing httpx..."
-go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
+go_install "subfinder" github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
+go_install "httpx" github.com/projectdiscovery/httpx/cmd/httpx@latest
+go_install "nuclei" github.com/projectdiscovery/nuclei/v2/cmd/nuclei@latest
+go_install "dnsx" github.com/projectdiscovery/dnsx/cmd/dnsx@latest
+go_install "assetfinder" github.com/tomnomnom/assetfinder@latest
+go_install "puredns" github.com/d3mondev/puredns@latest
+go_install "anew" github.com/tomnomnom/anew@latest
 
-# Nuclei
-log "Installing nuclei..."
-go install -v github.com/projectdiscovery/nuclei/v2/cmd/nuclei@latest
-
-# DNSx
-log "Installing dnsx..."
-go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest
-
-# Third-party tools
-log "Installing assetfinder..."
-go install -v github.com/tomnomnom/assetfinder@latest
-
-log "Installing puredns..."
-go install -v github.com/d3mondev/puredns@latest
-
-log "Installing anew..."
-go install -v github.com/tomnomnom/anew@latest
-
-# Add to PATH
 GOPATH=$(go env GOPATH)
-if [[ ":$PATH:" != *":$GOPATH/bin:"* ]]; then
-    warn "Adding Go bin to PATH..."
-    echo 'export PATH=$PATH:'"$GOPATH"'/bin' >> ~/.bashrc
-    export PATH=$PATH:$GOPATH/bin
-    log "Updated ~/.bashrc with Go bin path"
+GOBIN="$GOPATH/bin"
+append_path_line='export PATH="$PATH:'"$GOBIN"'"'
+if [[ ":$PATH:" != *":$GOBIN:"* ]]; then
+    warn "Adding Go bin ($GOBIN) to PATH in shell profiles (if missing)..."
+    for profile in "$HOME/.bashrc" "$HOME/.zshrc"; do
+        if [[ -f "$profile" ]] && ! grep -qF "$GOBIN" "$profile" 2>/dev/null; then
+            echo "$append_path_line" >> "$profile"
+            log "Updated $profile"
+        fi
+    done
+    export PATH="$PATH:$GOBIN"
 fi
 
 echo ""
 echo "═══════════════════════════════════════════════════════════════"
-echo "  Installation Complete!"
+echo "  Done — open a new terminal (or: source ~/.bashrc)"
+echo "  Verify:  subfinder -version && httpx -version"
 echo "═══════════════════════════════════════════════════════════════"
-echo ""
-echo "All tools are now installed. You can use:"
-echo "  bash scripts/zwanski-subdomain-chain.sh target.com"
 echo ""
