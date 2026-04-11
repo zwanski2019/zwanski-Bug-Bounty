@@ -1,22 +1,3 @@
-
-## Local Dashboard
-
-After installation, launch the platform with:
-
-```bash
-zwanski start
-```
-
-Then open:
-
-```bash
-http://localhost:1337
-```
-
-Use the AI assistant tab to grade findings, summarize impact, and inspect tool health.
-
-The platform uses OpenRouter by default. In Settings, you can also override the API URL to any compatible chat completion endpoint and provide your own API key.
-
 # zwanski Bug Bounty Methodology
 
 [![GitHub stars](https://img.shields.io/github/stars/zwanski2019/zwanski-Bug-Bounty?style=for-the-badge&logo=github)](https://github.com/zwanski2019/zwanski-Bug-Bounty/stargazers) [![GitHub forks](https://img.shields.io/github/forks/zwanski2019/zwanski-Bug-Bounty?style=for-the-badge&logo=github)](https://github.com/zwanski2019/zwanski-Bug-Bounty/network/members) [![License](https://img.shields.io/github/license/zwanski2019/zwanski-Bug-Bounty?style=for-the-badge)](https://github.com/zwanski2019/zwanski-Bug-Bounty/blob/main/LICENSE)
@@ -26,15 +7,58 @@ The platform uses OpenRouter by default. In Settings, you can also override the 
 A practitioner-built, opinionated recon and exploitation methodology focused on **what most hunters skip**.  
 Not a tool list. Not a checklist. A thinking framework backed by actual findings.
 
+**Docs:** [In-repo wiki](docs/wiki/README.md) · [QUICKSTART.md](QUICKSTART.md) · [INSTALL.md](INSTALL.md) · [PRODUCTION.md](PRODUCTION.md) · [DOCKER.md](DOCKER.md)
+
+---
+
+## ZWANSKI.BB Command Center (local dashboard)
+
+The repository includes a **Flask + Socket.IO** web UI (`ui/index.html`, `server.py`) — a single pane for tools, agents, AI, telemetry, and optional **Zwanski Watchdog** integration.
+
+### Start
+
+```bash
+zwanski start
+```
+
+Open **http://localhost:1337** (or set `PORT` in `.env`).
+
+### What’s in the UI
+
+| Area | What it does |
+|------|----------------|
+| **Command** | War map (`/api/warmap`), scan/restart shortcuts |
+| **Telemetry** | Host health + processes (`/api/system/*`) |
+| **Agentic** | Multi-phase recon pipeline (`/api/agent/*`) |
+| **Arsenal** | Tool registry, command preview, subdomain/OAuth chains |
+| **Watchdog** | Status + allowlisted tasks for `zwanski-watchdog/` (Docker infra, `pnpm` dev servers, scanner) — [wiki](docs/wiki/watchdog.md) |
+| **Terminal** | xterm stream for all queued jobs |
+| **Intel AI** | Chat, grading, KB/RAG, exploit-chain hints (OpenRouter-compatible) |
+| **Reports** | Report finalize API |
+| **Config** | Session AI overrides; notes for `SHADOW_MODE`, `AUTO_GIT_SYNC` |
+
+### Watchdog environment (optional)
+
+If you run the Watchdog stack on non-default ports, set in `.env`:
+
+- `WATCHDOG_API_URL` (default `http://127.0.0.1:4000`)
+- `WATCHDOG_WEB_URL` (default `http://127.0.0.1:3000`)
+- `WATCHDOG_CLASSIFIER_URL` (default `http://127.0.0.1:8001`)
+
+Full API table: [docs/wiki/api.md](docs/wiki/api.md).
+
 ---
 
 ## Features
 
 - Opinionated bug bounty methodology for modern web, API, OAuth/OIDC and mobile targets
-- Local AI-powered dashboard for grading findings and running tools from one pane
-- One-command installer with optional localhost UI and OpenRouter-compatible AI support
-- Integrated tool status, terminal execution, and actionable methodology guidance
-- Clean phase-based workflow from profiling to reporting
+- **Command center** with War map, unified terminal, system telemetry, and agent pipelines
+- **Zwanski Watchdog** tab: probe API/web/classifier and start documented infra & dev commands (no arbitrary shell)
+- Local **KB / RAG** hooks and AI-assisted grading, chains, and report flow
+- **OpenClaw bridge** manifest (`openclaw_bridge.json`, `GET /api/openclaw/commands`) for mobile C2 alignment
+- One-command installer with optional Go toolchain helpers (`install.sh`, `setup-tools.sh`)
+- **Shadow mode** (`SHADOW_MODE=1`) for jittered HTTP client behavior on in-pipeline probes
+- Clean phase-based workflow from profiling to reporting (`00-setup/` … `08-reporting/`)
 
 ---
 
@@ -74,6 +98,8 @@ This one starts where others end:
 07-mobile-api/          → APK/IPA recon, endpoint correlation with web surface
 08-reporting/           → Report templates, CVSS guidance, chain documentation
 scripts/                → Automation: scope parser, subdomain chain, auth flow mapper
+zwanski-watchdog/       → Optional leak-pipeline monorepo (scanner, API, web, classifier)
+docs/wiki/              → In-repo wiki (dashboard, API, Watchdog, configuration)
 ```
 
 ---
@@ -144,8 +170,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/zwanski2019/zwanski-Bug-Boun
 That's it! The script will:
 1. ✅ Clone the repository (or update if exists)
 2. ✅ Create isolated Python environment
-3. ✅ Install all dependencies
-4. ✅ Create convenient wrappers
+3. ✅ Install all dependencies (`pip install -r requirements.txt`, optional Go tools via `setup-tools.sh`)
+4. ✅ Create convenient wrappers (including `PATH` prep for `$(go env GOPATH)/bin` where applicable)
 5. ✅ You're ready to use immediately
 
 ### Or Run Locally
@@ -175,10 +201,14 @@ Start using the tools immediately:
 
 ### Full Documentation
 
+- **[docs/wiki/](docs/wiki/README.md)** — Dashboard, Watchdog, HTTP API, configuration
 - **[QUICKSTART.md](QUICKSTART.md)** — 2-minute guide
 - **[INSTALL.md](INSTALL.md)** — Detailed setup & troubleshooting  
 - **[PRODUCTION.md](PRODUCTION.md)** — Full production deployment
 - **[DOCKER.md](DOCKER.md)** — Container-based setup
+- **[zwanski-watchdog/README.md](zwanski-watchdog/README.md)** — Watchdog monorepo quick start
+
+You can **mirror** `docs/wiki/` into [GitHub Wiki](https://docs.github.com/en/communities/documenting-your-project-with-wikis/about-wikis) if you prefer the Wiki tab; the source of truth stays in git here.
 
 ---
 
@@ -190,24 +220,30 @@ A short walkthrough of the local ZWANSKI dashboard and AI-assisted workflow, inc
 
 ---
 
-## 🏥 Health Check Endpoint
+## 🏥 Health & telemetry
 
-Check the status of all integrated tools:
+### CLI
 
 ```bash
 zwanski health
 ```
 
-Or via API:
+### HTTP
+
+Aggregated tool / integration health:
+
 ```bash
 curl http://localhost:1337/api/health
 ```
 
-Response includes:
-- **Subdominator** - Passive subdomain enumeration status
-- **NeuroSploit** - AI-driven vulnerability detection status  
-- **CrawlAI-RAG** - Web crawling and knowledge extraction status
-- **OpenClaw** - Mobile C2 (Telegram/WhatsApp/Discord) status
+Host-oriented metrics and process list (used by the Telemetry tab fallback):
+
+```bash
+curl http://localhost:1337/api/system/health
+curl http://localhost:1337/api/system/processes
+```
+
+Typical `/api/health` payload includes status for integrations such as **Subdominator**, **NeuroSploit**, **CrawlAI-RAG**, and **OpenClaw** (Telegram/WhatsApp/Discord), depending on your `.env`.
 
 ---
 
@@ -356,6 +392,9 @@ cp .env.example .env
 - `TELEGRAM_CHAT_ID` - Your Telegram chat ID
 - `GITHUB_TOKEN` - GitHub token for auto-sync
 - `PORT` - Server port (default: 1337)
+- `WATCHDOG_API_URL`, `WATCHDOG_WEB_URL`, `WATCHDOG_CLASSIFIER_URL` - Watchdog integration probes
+- `SHADOW_MODE` - Set `1` for ghost HTTP client behavior on pipeline probes
+- `AUTO_GIT_SYNC` - Set `1` only on trusted private forks
 
 ---
 
