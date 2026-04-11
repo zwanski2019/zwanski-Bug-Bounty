@@ -190,6 +190,175 @@ A short walkthrough of the local ZWANSKI dashboard and AI-assisted workflow, inc
 
 ---
 
+## 🏥 Health Check Endpoint
+
+Check the status of all integrated tools:
+
+```bash
+zwanski health
+```
+
+Or via API:
+```bash
+curl http://localhost:1337/api/health
+```
+
+Response includes:
+- **Subdominator** - Passive subdomain enumeration status
+- **NeuroSploit** - AI-driven vulnerability detection status  
+- **CrawlAI-RAG** - Web crawling and knowledge extraction status
+- **OpenClaw** - Mobile C2 (Telegram/WhatsApp/Discord) status
+
+---
+
+## 🤖 Agentic Recon Workflow
+
+The platform supports fully automated reconnaissance pipelines using AI agents:
+
+### Start Agent Pipeline
+```bash
+curl -X POST http://localhost:1337/api/agent/run \
+  -H "Content-Type: application/json" \
+  -d '{"target": "example.com"}'
+```
+
+### Check Pipeline Status
+```bash
+curl http://localhost:1337/api/agent/<pipeline_id>
+```
+
+### Pipeline Phases
+1. **Intelligence** - CrawlAI-RAG extracts target intelligence
+2. **Recon** - Subdominator + ProjectDiscovery for subdomain enumeration
+3. **Attack** - NeuroSploit for vulnerability detection
+4. **Report** - AI-generated vulnerability reports
+
+### Pipeline Status
+```bash
+# List all active pipelines
+curl http://localhost:1337/api/agent
+
+# Get specific pipeline
+curl http://localhost:1337/api/agent/<pipeline_id>
+```
+
+### Auto-Reporting
+```bash
+curl -X POST http://localhost:1337/api/report/finalize \
+  -H "Content-Type: application/json" \
+  -d '{"pipeline_id": "<id>", "target": "example.com", "platform": "HackerOne"}'
+```
+
+---
+
+## 📱 Mobile C2 (OpenClaw)
+
+Control your recon operations from Telegram, WhatsApp, or Discord.
+
+### Setup
+
+1. **Install OpenClaw:**
+   ```bash
+   git clone https://github.com/openclaw/openclaw ~/.zwanski-bb/OpenClaw
+   ```
+
+2. **Configure Telegram Bot:**
+   ```bash
+   # Set environment variables
+   export TELEGRAM_BOT_TOKEN="your-bot-token"
+   export TELEGRAM_CHAT_ID="your-chat-id"
+   ```
+
+3. **Configure WhatsApp:**
+   ```bash
+   export WHATSAPP_SESSION_PATH="/path/to/session.json"
+   ```
+
+4. **Configure Discord:**
+   ```bash
+   export DISCORD_BOT_TOKEN="your-bot-token"
+   export DISCORD_CHANNEL_ID="channel-id"
+   ```
+
+### Mobile Commands
+
+| Command | Description |
+|---------|-------------|
+| `/start` | Get system status and available commands |
+| `/status` | Check integrated tools health |
+| `/recon <target>` | Start subdomain reconnaissance |
+| `/run <tool> <args>` | Execute a security tool |
+| `/scan <target>` | Run full agentic pipeline |
+| `/health` | Show tools and system health |
+| `/report` | Generate findings report |
+| `/help` | Show all available commands |
+
+### Example Telegram Usage
+```
+/start - Get welcome message with system status
+/recon example.com - Start recon on target
+/run subfinder -d example.com - Direct tool execution
+/health - Check all tools status
+```
+
+### Secure Configuration
+
+Create `~/.zwanski-bb/OpenClaw/secure_config.json`:
+```json
+{
+  "approval_required": true,
+  "auto_recon": true,
+  "exploit_commands": ["neurosploit", "sqlmap", "nuclei"],
+  "safe_commands": ["subfinder", "httpx", "crawlai-rag"],
+  "github_auto_sync": true,
+  "heartbeat_interval_minutes": 30
+}
+```
+
+### Heartbeat Auto-Recon
+
+Enable periodic reconnaissance on configured targets:
+```bash
+# In your Telegram bot, send:
+/heartbeat enable example.com
+/heartbeat disable
+```
+
+---
+
+## ⚙️ Production Deployment
+
+### Quick Start (Production)
+```bash
+zwanski start --prod
+```
+
+This launches Gunicorn with:
+- 4 worker processes
+- Eventlet async workers for WebSocket support
+- 120-second timeout
+- Access/error logging to stdout
+
+### Environment Variables
+
+Copy `.env.example` to `.env` and configure:
+
+```bash
+cp .env.example .env
+# Edit .env with your API keys
+```
+
+### Required Variables
+- `OPENROUTER_API_KEY` - Your OpenRouter API key
+
+### Optional Variables
+- `TELEGRAM_BOT_TOKEN` - Telegram bot for Mobile C2
+- `TELEGRAM_CHAT_ID` - Your Telegram chat ID
+- `GITHUB_TOKEN` - GitHub token for auto-sync
+- `PORT` - Server port (default: 1337)
+
+---
+
 ## Maintained by
 
 **Mohamed Ibrahim** — [`zwanski`](https://github.com/zwanski2019)  

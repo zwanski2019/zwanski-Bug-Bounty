@@ -827,6 +827,63 @@ def api_system_processes():
 
 
 # ======================
+# INTEGRATED TOOLS HEALTH STATUS
+# ======================
+
+@app.route("/api/health", methods=["GET"])
+def api_health():
+    """Get health status of all integrated tools (Subdominator, NeuroSploit, CrawlAI-RAG, OpenClaw)."""
+    tools_status = {
+        "subdominator": {
+            "name": "Subdominator",
+            "installed": tool_installed("subdominator") or shutil.which("subdominator") is not None,
+            "description": "Passive subdomain enumeration by RevoltSecurities",
+            "status": "available" if tool_installed("subdominator") else "not_found"
+        },
+        "neurosploit": {
+            "name": "NeuroSploit",
+            "installed": tool_installed("neurosploit") or shutil.which("neurosploit") is not None,
+            "description": "AI-driven payload generation and exploit chaining by JoasASantos",
+            "status": "available" if tool_installed("neurosploit") else "not_found"
+        },
+        "crawlai_rag": {
+            "name": "CrawlAI-RAG",
+            "installed": tool_installed("crawlai-rag") or shutil.which("crawlai-rag") is not None,
+            "description": "Website crawling and knowledge extraction by AnkitNayak-eth",
+            "status": "available" if tool_installed("crawlai-rag") else "not_found"
+        },
+        "openclaw": {
+            "name": "OpenClaw",
+            "installed": shutil.which("openclaw") is not None or os.path.exists(str(ROOT / "OpenClaw")),
+            "description": "Mobile C2 bridge for Telegram/WhatsApp/Discord",
+            "channel": mobile_node.channel,
+            "status": mobile_node.status,
+            "heartbeat_enabled": mobile_node.heartbeat_enabled
+        }
+    }
+    
+    # Count available tools
+    available_count = sum(1 for t in tools_status.values() if t.get("installed", False))
+    total_count = len(tools_status)
+    
+    # Overall system health
+    config = load_config()
+    system_health = get_system_health()
+    
+    return jsonify({
+        "status": "healthy" if available_count >= 2 else "degraded",
+        "message": f"{available_count}/{total_count} integrated tools available",
+        "tools": tools_status,
+        "api_key_configured": bool(config.get("openrouter_key")),
+        "system": {
+            "cpu_percent": system_health["cpu_percent"],
+            "memory_percent": system_health["memory_percent"],
+            "uptime": system_health["timestamp"]
+        }
+    })
+
+
+# ======================
 # AGENT PIPELINE API
 # ======================
 

@@ -172,20 +172,68 @@ dashboard_submit(){
   curl -s -X POST -H 'Content-Type: application/json' -d "$payload" "$DASHBOARD_API/run"
 }
 
+# Kill existing server processes
+kill_server() {
+  pkill -f "gunicorn.*server:app" 2>/dev/null || true
+  pkill -f "python3 .*server_monitor.py" 2>/dev/null || true
+  pkill -f "python3 .*server.py" 2>/dev/null && echo "Server stopped" || echo "No server running"
+}
+
+# Start server in production mode with Gunicorn
+start_prod() {
+  echo "Starting ZWANSKI dashboard in PRODUCTION mode on http://localhost:$PORT"
+  echo "Using Gunicorn workers for production stability"
+  cd "$PLATFORM"
+  gunicorn \
+    --workers 4 \
+    --worker-class eventlet \
+    --bind 0.0.0.0:"$PORT" \
+    --timeout 120 \
+    --keep-alive 5 \
+    --access-logfile - \
+    --error-logfile - \
+    --chdir "$PLATFORM" \
+    "server:app" &
+  echo "Dashboard running at http://localhost:$PORT"
+  echo "Health check: http://localhost:$PORT/api/health"
+}
+
+# Start server in development mode
+start_dev() {
+  echo "Starting ZWANSKI dashboard in DEVELOPMENT mode on http://localhost:$PORT"
+  python3 "$PLATFORM/server_monitor.py" --port "$PORT"
+}
+
 case "$1" in
-  start|"")
-    echo "Starting ZWANSKI dashboard on http://localhost:$PORT"
-    python3 "$PLATFORM/server_monitor.py" --port "$PORT"
+  start)
+    shift
+    if [[ "$1" == "--prod" ]]; then
+      kill_server
+      sleep 1
+      start_prod
+    else
+      kill_server
+      sleep 1
+      start_dev
+    fi
     ;;
-  stop)
-    pkill -f "python3 .*server_monitor.py" 2>/dev/null || true
-    pkill -f "python3 .*server.py" 2>/dev/null && echo "Dashboard stopped" || echo "Dashboard not running"
+  stop|"")
+    kill_server
     ;;
   status)
     if dashboard_available; then
-      curl -s "$DASHBOARD_API/tools" | python3 -c 'import json,sys;data=json.load(sys.stdin);print("Tools installed: {}/{}".format(sum(1 for t in data if t.get("installed")), len(data)))'
+      echo "Dashboard is ONLINE at http://localhost:$PORT"
+      curl -s "$DASHBOARD_API/health" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(f"Status: {data.get(\"status\", \"unknown\")}")' 2>/dev/null || true
+      curl -s "$DASHBOARD_API/tools" | python3 -c 'import json,sys;data=json.load(sys.stdin);print("Tools: {}/{} installed".format(sum(1 for t in data if t.get("installed")), len(data)))'
     else
-      echo "Dashboard offline. Use 'zwanski start' first."
+      echo "Dashboard is OFFLINE. Use 'zwanski start' first."
+    fi
+    ;;
+  health)
+    if dashboard_available; then
+      curl -s "$DASHBOARD_API/health" | python3 -m json.tool
+    else
+      echo "Dashboard offline."
     fi
     ;;
   run)
@@ -216,16 +264,43 @@ case "$1" in
       exec python3 "$PLATFORM/oauth-mapper" "$@"
     fi
     ;;
+  agent)
+    shift
+    if dashboard_available; then
+      echo "Agent commands:"
+      echo "  zwanski agent run <target>  - Start agentic recon pipeline"
+      echo "  zwanski agent list         - List active pipelines"
+    else
+      echo "Dashboard offline."
+    fi
+    ;;
   *)
     cat <<'EOF'
-Usage: zwanski [command]
+ZWANSKI Bug Bounty Platform v3.0
+
+Usage: zwanski [command] [options]
 
 Commands:
-  start      Start the localhost dashboard
-  stop       Stop the dashboard
-  status     Show installed tools status
-  recon      Run the subdomain recon chain
-  oauth      Run the OAuth mapper
+  start [--prod]   Start the localhost dashboard (use --prod for Gunicorn)
+  stop             Stop the dashboard
+  status           Show dashboard and tools status
+  health           Show integrated tools health status
+  run <command>    Run a security tool via the dashboard
+  recon <target>   Run subdomain reconnaissance
+  oauth [target]   Run OAuth/OIDC mapper
+  agent <cmd>      Manage agentic recon pipelines
+
+Mobile C2 (OpenClaw):
+  Telegram/WhatsApp bot integration for remote C2 commands
+  See README.md for OpenClaw setup instructions.
+
+Examples:
+  zwanski start                    # Development mode
+  zwanski start --prod             # Production mode with Gunicorn
+  zwanski status                   # Check system status
+  zwanski health                  # Check tools health
+  zwanski recon example.com        # Recon a target
+  zwanski run subfinder -d example.com
 EOF
     ;;
 esac
