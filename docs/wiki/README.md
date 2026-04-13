@@ -1,30 +1,54 @@
-# ZWANSKI.BB documentation wiki
+# ZWANSKI.BB Docs Home
 
-In-repo wiki for the **ZWANSKI Bug Bounty** platform (Flask command center + methodology).  
-Browse on GitHub: [docs/wiki](https://github.com/zwanski2019/zwanski-Bug-Bounty/tree/main/docs/wiki).
+In-repo operational documentation for the ZWANSKI.BB platform.
 
-## Pages
+- Source of truth: `docs/wiki/` in this repository
+- Optional mirror target: GitHub Wiki tab
+- Platform scope: dashboard, APIs, task execution, Watchdog integration, and config
 
-| Page | Description |
-|------|-------------|
-| [Dashboard UI](dashboard-ui.md) | Tabs: Command, Telemetry, Agentic, Arsenal, Watchdog, Terminal, Intel AI, Reports, Config |
-| [Watchdog integration](watchdog.md) | Embedded **zwanski-watchdog** monorepo: status API, allowlisted tasks, env vars |
-| [HTTP API](api.md) | REST routes for tools, agents, AI, KB, warmap, system health |
-| [Configuration](configuration.md) | `.env`, OpenRouter, shadow mode, git sync, OpenClaw |
+## Start Here
 
-## Methodology (separate tree)
+If you are new, follow this order:
 
-The phase-based hunting methodology lives in the repo root folders `00-setup/` … `08-reporting/` and in the main [README](../../README.md). This wiki focuses on **running and extending the software**.
+1. [Dashboard UI](dashboard-ui.md) - tabs, workflows, and operator controls
+2. [Configuration](configuration.md) - `.env`, API keys, feature flags
+3. [Watchdog integration](watchdog.md) - infra bring-up and allowlisted actions
+4. [HTTP API](api.md) - routes used by UI and integrations
+5. [Troubleshooting runbook](troubleshooting.md) - fast resolution paths
+6. [Wiki Home page](Home.md) - GitHub Wiki landing page content
 
-## GitHub Wiki (optional)
+## Role-based Navigation
 
-GitHub’s separate Wiki tab can mirror these files: copy sections into wiki pages and link back here for versioned docs.
+### Operator
 
-## Roadmap ideas
+- Bring platform online: [Configuration](configuration.md)
+- Start Watchdog stack: [Watchdog integration](watchdog.md)
+- Validate health endpoints: [HTTP API](api.md)
+- Resolve issues quickly: [Troubleshooting runbook](troubleshooting.md)
 
-- Per-program vaults and scoped KB collections  
-- Saved “playbooks” (tool chains) with one-click run from Arsenal  
-- Export warmap snapshot as PNG/SVG for reports  
-- Webhook notifications when agent pipeline completes or severity threshold hits  
+### Developer
 
-Contributions: PRs against `docs/wiki/` welcome.
+- UI behavior and tab contracts: [Dashboard UI](dashboard-ui.md)
+- Route references and payloads: [HTTP API](api.md)
+- Environment and feature toggles: [Configuration](configuration.md)
+
+### Security/Research
+
+- Agentic pipeline endpoints: [HTTP API](api.md)
+- Tooling and execution controls: [Dashboard UI](dashboard-ui.md)
+- Operational constraints: [Watchdog integration](watchdog.md)
+
+## Quality Standard
+
+All wiki pages should include:
+
+- Purpose and scope
+- Prerequisites
+- Copy-paste quickstart
+- Verification checks
+- Failure modes and fixes
+- Related pages
+
+## Methodology Note
+
+Hunting methodology content remains in the root phase directories (`00-setup/` to `08-reporting/`) and main [README](../../README.md). This wiki documents software operations and platform behavior.

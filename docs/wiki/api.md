@@ -1,14 +1,21 @@
 # HTTP API reference (ZWANSKI.BB)
 
+## Purpose
+
+Operational API reference for dashboard integrations, automation scripts, and troubleshooting.
+
 Base URL: `http://127.0.0.1:1337` (unless `PORT` is changed).
 
-> Not every route is listed — see `server.py` for the full set. Below are the main integration points.
+> Not every route is listed - see `server.py` for the full set. This page covers primary integration points.
 
 ## Config & tools
 
 | Method | Path | Notes |
 |--------|------|--------|
 | GET/POST | `/api/config` | Session AI settings |
+| GET | `/api/setup/checklist` | First-launch setup wizard checklist |
+| POST | `/api/setup/decision` | Persist install/configure/skip decision |
+| POST | `/api/setup/complete` | Mark setup wizard completed |
 | GET | `/api/tools` | Tool registry / status |
 | GET | `/api/prompt-templates` | Prompt templates |
 
@@ -20,6 +27,8 @@ Base URL: `http://127.0.0.1:1337` (unless `PORT` is changed).
 | GET | `/api/tasks` | List tasks |
 | GET | `/api/tasks/<id>` | Task detail |
 | POST | `/api/tasks/<id>/abort` | Abort |
+| GET | `/api/term/sessions` | Terminal session list (tmux-backed metadata) |
+| POST | `/api/term/<id>/kill` | Kill terminal session |
 
 ## System
 
@@ -77,3 +86,17 @@ Base URL: `http://127.0.0.1:1337` (unless `PORT` is changed).
 ## WebSocket
 
 Socket.IO is used for terminal/task streaming (namespace `/`); connect with the same origin as the UI.
+
+## Quick health checks
+
+```bash
+curl http://127.0.0.1:1337/api/health
+curl http://127.0.0.1:1337/api/system/health
+curl http://127.0.0.1:1337/api/watchdog/status
+```
+
+## Related pages
+
+- [Dashboard UI](dashboard-ui.md)
+- [Watchdog integration](watchdog.md)
+- [Troubleshooting runbook](troubleshooting.md)

@@ -1,11 +1,13 @@
 # Zwanski Watchdog (dashboard integration)
 
-The **Watchdog** monorepo ships as `zwanski-watchdog/` inside this repository. It is a **separate product** (scanner → Redis → classifier → Postgres, Next.js web, Fastify API) from the port **1337** dashboard, but the dashboard can **probe** it and **start** common tasks safely.
+## Purpose
+
+The **Watchdog** monorepo ships as `zwanski-watchdog/` inside this repository. It is a separate product (scanner -> Redis -> classifier -> Postgres, Next.js web, Fastify API) from the port **1337** dashboard, but the dashboard can probe it and start common tasks safely.
 
 ## Prerequisites
 
 - `zwanski-watchdog/` present next to `server.py`
-- Docker (for infra), Go 1.22+ (scanner), Node/pnpm (API + web), Python 3.12+ (classifier) — as described in `zwanski-watchdog/README.md`
+- Docker (for infra), Go 1.22+ (scanner), Node/pnpm (API + web), Python 3.12+ (classifier) - as described in `zwanski-watchdog/README.md`
 
 ## Environment variables
 
@@ -23,7 +25,7 @@ Set in the **Bug Bounty platform** `.env` (not only Watchdog’s):
 |--------|------|-------------|
 | GET | `/api/watchdog/info` | Paths, install flag, docs link |
 | GET | `/api/watchdog/status` | Reachability: API `/health`, web `/`, classifier `/health` |
-| POST | `/api/watchdog/run` | Body: `{"task":"<key>"}` — **fixed keys only** (no arbitrary shell) |
+| POST | `/api/watchdog/run` | Body: `{"task":"<key>"}` - **fixed keys only** (no arbitrary shell) |
 
 ### Allowlisted `task` keys
 
@@ -40,13 +42,35 @@ Set in the **Bug Bounty platform** `.env` (not only Watchdog’s):
 
 Tasks are executed by the same task runner as Arsenal; open the **Terminal** tab to view stdout/stderr.
 
-## First-time Watchdog flow
+## Quickstart (recommended order)
 
-1. **Docker infra up** from the Watchdog tab (or follow `zwanski-watchdog/README.md`).
-2. Apply DB migration and seed if using the API (`pnpm` commands in Watchdog README).
-3. **pnpm install**, then **API dev** / **Web dev** / **Classifier** as needed.
-4. Status cards turn **UP** when each service responds.
+1. Start infra: `compose_up` from dashboard (or `docker compose up -d` in `zwanski-watchdog/infra`)
+2. Apply DB migration and seed for API
+3. Run `pnpm_install`
+4. Start `api_dev`, `web_dev`, and `classifier_dev`
+5. Verify cards are **UP** in Watchdog tab (`/api/watchdog/status`)
+
+## Verification checklist
+
+- `GET /api/watchdog/status` returns `up: true` for API/web/classifier
+- `GET /api/watchdog/info` shows installed paths and docs URL
+- Terminal tab displays live stdout/stderr for each Watchdog task
+
+## Common failures
+
+- `permission denied ... /var/run/docker.sock`  
+  Add user to docker group, start dashboard from a shell where `docker ps` works.
+- `pnpm: not found`  
+  Install pnpm (`npm i -g pnpm`) then rerun `pnpm_install`.
+- Cards remain DOWN after startup  
+  Check `WATCHDOG_*_URL` values in `.env` and verify services bind on those ports.
 
 ## Security note
 
-`/api/watchdog/run` never accepts user-supplied shell strings — only the keys above. To add tasks, extend the allowlist in `server.py` and document here.
+`/api/watchdog/run` never accepts user-supplied shell strings - only allowlisted task keys. To add tasks, extend the allowlist in `server.py` and document here.
+
+## Related pages
+
+- [Dashboard UI](dashboard-ui.md)
+- [HTTP API](api.md)
+- [Troubleshooting runbook](troubleshooting.md)
