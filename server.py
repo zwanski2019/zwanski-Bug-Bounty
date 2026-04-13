@@ -8,6 +8,7 @@ import os
 import queue
 import random
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -996,9 +997,11 @@ def api_run():
     if first not in ALLOWED_TOOLS and first not in {"oauth-mapper", "subdomain-recon", "./oauth-mapper", "./subdomain-recon"}:
         return jsonify({"error": f"Tool '{first}' is not allowed."}), 403
 
+    normalized_cmd = _normalize_dashboard_command(cmd)
+
     if body.get("sync"):
         try:
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300, cwd=str(ROOT))
+            result = subprocess.run(normalized_cmd, shell=True, capture_output=True, text=True, timeout=300, cwd=str(ROOT))
             return jsonify({
                 "stdout": result.stdout,
                 "stderr": result.stderr,
@@ -1009,7 +1012,7 @@ def api_run():
         except Exception as exc:
             return jsonify({"error": str(exc)})
 
-    task = task_manager.submit(cmd)
+    task = task_manager.submit(normalized_cmd)
     return jsonify({"ok": True, "task_id": task.id, "status": task.status})
 
 
@@ -1350,6 +1353,25 @@ def _watchdog_shell_tasks():
     }
 
 
+def _normalize_dashboard_command(cmd: str) -> str:
+    """Normalize wrapper invocations to absolute paths under platform root."""
+    parts = shlex.split(cmd, posix=True)
+    if not parts:
+        return cmd
+    first = parts[0]
+    alias_map = {
+        "oauth-mapper": str(ROOT / "oauth-mapper"),
+        "./oauth-mapper": str(ROOT / "oauth-mapper"),
+        "subdomain-recon": str(ROOT / "subdomain-recon"),
+        "./subdomain-recon": str(ROOT / "subdomain-recon"),
+    }
+    mapped = alias_map.get(first)
+    if not mapped:
+        return cmd
+    parts[0] = mapped
+    return " ".join(shlex.quote(p) for p in parts)
+
+
 @app.route("/api/watchdog/run", methods=["POST"])
 def api_watchdog_run():
     """Queue a predefined Watchdog maintenance command (streams in Terminal tab)."""
@@ -1361,6 +1383,18 @@ def api_watchdog_run():
     if task_key not in tasks:
         return jsonify({"error": "unknown task", "allowed": list(tasks.keys())}), 400
     cmd = tasks[task_key]
+    if task_key.startswith("compose_"):
+        compose_file = WATCHDOG_ROOT / "infra" / "docker-compose.yml"
+        if compose_file.exists() and not os.access(compose_file, os.R_OK):
+            return jsonify(
+                {
+                    "error": (
+                        f"Permission denied reading {compose_file}. "
+                        "Fix ownership/permissions on ~/.zwanski-bb (example: "
+                        f"sudo chown -R {os.getenv('USER', 'your-user')}:{os.getenv('USER', 'your-user')} ~/.zwanski-bb)."
+                    )
+                }
+            ), 403
     t = task_manager.submit(cmd)
     return jsonify({"ok": True, "task_id": t.id, "cmd": cmd})
 
@@ -1475,7 +1509,8 @@ def handle_run_command(data):
         emit('terminal_output', {'output': f"Error: Tool '{first}' is not allowed.\n"})
         return
 
-    task = task_manager.submit(command)
+    normalized_cmd = _normalize_dashboard_command(command)
+    task = task_manager.submit(normalized_cmd)
     emit('task_started', {'task_id': task.id, 'status': task.status, 'cmd': task.cmd})
 
 @socketio.on('ai_chat')
