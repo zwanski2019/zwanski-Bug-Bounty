@@ -1338,9 +1338,13 @@ def api_watchdog_status():
 def _watchdog_shell_tasks():
     """Fixed commands only — no user-controlled shell fragments."""
     r = str(WATCHDOG_ROOT.resolve())
+    compose_pipe = (
+        f'python3 -c "from pathlib import Path; print(Path(\'{r}/infra/docker-compose.yml\').read_text())" '
+        f'| docker compose -f -'
+    )
     return {
-        "compose_up": f'cd "{r}/infra" && docker compose up -d postgres redis elasticsearch minio ipfs',
-        "compose_down": f'cd "{r}/infra" && docker compose down',
+        "compose_up": f'cd "{r}/infra" && {compose_pipe} up -d postgres redis elasticsearch minio ipfs',
+        "compose_down": f'cd "{r}/infra" && {compose_pipe} down',
         "pnpm_install": f'cd "{r}" && pnpm install',
         "api_dev": f'cd "{r}" && pnpm --filter @zwanski/api dev',
         "web_dev": f'cd "{r}" && pnpm --filter @zwanski/web dev',
