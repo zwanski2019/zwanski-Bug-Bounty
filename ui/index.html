@@ -585,7 +585,35 @@ function setCommandPreview() {
   const target = document.getElementById('toolTarget').value.trim();
   const args = document.getElementById('toolArgs').value.trim();
   const silent = document.getElementById('toolSilent').checked ? '-silent' : '';
-  document.getElementById('cmdPreview').value = [tool, target, silent, args].filter(Boolean).join(' ');
+  document.getElementById('cmdPreview').value = buildToolCommand(tool, target, args, silent);
+}
+
+function normalizeTargetUrl(target) {
+  if (!target) return '';
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(target)) return target;
+  return 'https://' + target;
+}
+
+function targetHost(target) {
+  const normalized = normalizeTargetUrl(target);
+  try {
+    return new URL(normalized).hostname;
+  } catch (_) {
+    return target.replace(/^https?:\/\//, '').split('/')[0];
+  }
+}
+
+function buildToolCommand(tool, target, args, silent) {
+  if (!tool) return '';
+  if (tool === 'nuclei') {
+    const url = normalizeTargetUrl(target);
+    return [tool, '-u', url, silent, args].filter(Boolean).join(' ');
+  }
+  if (tool === 's3scanner') {
+    const host = targetHost(target);
+    return [tool, '-bucket', host, args].filter(Boolean).join(' ');
+  }
+  return [tool, target, silent, args].filter(Boolean).join(' ');
 }
 
 function updateTaskSummary() {
@@ -853,7 +881,7 @@ function runSelectedCommand() {
   const target = document.getElementById('toolTarget').value.trim();
   const args = document.getElementById('toolArgs').value.trim();
   const silent = document.getElementById('toolSilent').checked ? '-silent' : '';
-  const cmd = [tool, target, silent, args].filter(Boolean).join(' ');
+  const cmd = buildToolCommand(tool, target, args, silent);
   if (!cmd) return;
   socket.emit('run_command', { command: cmd });
   showTab('terminal');
