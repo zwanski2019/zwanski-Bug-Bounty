@@ -173,6 +173,67 @@ def get_tools_status():
     return tools
 
 
+def get_setup_requirements(config):
+    key_set = bool((config.get("openrouter_key") or "").strip())
+    requirements = [
+        {
+            "id": "openrouter_key",
+            "label": "OpenRouter API key",
+            "kind": "api",
+            "required": True,
+            "ready": key_set,
+            "description": "Required for Intel AI analysis, report generation, and exploit-chain suggestions.",
+            "configure_tab": "settings",
+        },
+        {
+            "id": "tmux",
+            "label": "tmux terminal multiplexer",
+            "kind": "tool",
+            "required": True,
+            "ready": tool_installed("tmux"),
+            "description": "Enables non-blocking parallel terminal panes in the Terminal panel.",
+            "install_cmd": "sudo apt install -y tmux",
+        },
+        {
+            "id": "docker",
+            "label": "Docker engine",
+            "kind": "tool",
+            "required": True,
+            "ready": tool_installed("docker"),
+            "description": "Needed to run Watchdog infra services (Redis/Postgres/Elasticsearch/MinIO/IPFS).",
+            "install_cmd": "sudo apt install -y docker.io",
+        },
+        {
+            "id": "pnpm",
+            "label": "pnpm package manager",
+            "kind": "tool",
+            "required": False,
+            "ready": tool_installed("pnpm"),
+            "description": "Used by Watchdog API/Web workspaces and JavaScript monorepo tasks.",
+            "install_cmd": "sudo npm i -g pnpm",
+        },
+        {
+            "id": "subfinder",
+            "label": "Subfinder",
+            "kind": "tool",
+            "required": False,
+            "ready": tool_installed("subfinder"),
+            "description": "Recommended passive recon dependency for subdomain workflows.",
+            "install_cmd": "go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest",
+        },
+        {
+            "id": "nuclei",
+            "label": "Nuclei",
+            "kind": "tool",
+            "required": False,
+            "ready": tool_installed("nuclei"),
+            "description": "Recommended vulnerability scanner for Arsenal and agentic attack phases.",
+            "install_cmd": "go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest",
+        },
+    ]
+    return requirements
+
+
 class Task:
     def __init__(self, cmd):
         self.id = uuid.uuid4().hex
@@ -897,6 +958,52 @@ def api_set_config():
     config.update(request.json or {})
     save_config(config)
     return jsonify({"ok": True, "config": config})
+
+
+@app.route("/api/setup/checklist", methods=["GET"])
+def api_setup_checklist():
+    config = load_config()
+    onboarding = config.get("onboarding", {})
+    decisions = onboarding.get("decisions", {})
+    reqs = get_setup_requirements(config)
+    items = []
+    for item in reqs:
+        entry = dict(item)
+        entry["decision"] = decisions.get(item["id"])
+        items.append(entry)
+    return jsonify(
+        {
+            "ok": True,
+            "first_launch": not onboarding.get("completed", False),
+            "completed": onboarding.get("completed", False),
+            "items": items,
+        }
+    )
+
+
+@app.route("/api/setup/decision", methods=["POST"])
+def api_setup_decision():
+    body = request.get_json(silent=True) or {}
+    item_id = (body.get("item_id") or "").strip()
+    decision = (body.get("decision") or "").strip().lower()
+    if not item_id or decision not in {"install", "skip", "configure", "done"}:
+        return jsonify({"error": "item_id and valid decision are required"}), 400
+    config = load_config()
+    onboarding = config.setdefault("onboarding", {})
+    decisions = onboarding.setdefault("decisions", {})
+    decisions[item_id] = {"decision": decision, "updated_at": utc_now_iso_z()}
+    save_config(config)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/setup/complete", methods=["POST"])
+def api_setup_complete():
+    config = load_config()
+    onboarding = config.setdefault("onboarding", {})
+    onboarding["completed"] = True
+    onboarding["completed_at"] = utc_now_iso_z()
+    save_config(config)
+    return jsonify({"ok": True, "completed_at": onboarding["completed_at"]})
 
 
 @app.route("/api/tools", methods=["GET"])

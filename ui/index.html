@@ -94,9 +94,35 @@ button.danger{background:var(--red);color:#fff}
 .main-footer{margin-top:36px;padding-top:18px;border-top:1px solid var(--border);font-size:12px;color:var(--muted);display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center}
 .main-footer a{color:var(--cyan);text-decoration:none}
 .main-footer a:hover{text-decoration:underline}
+.setup-overlay{position:fixed;inset:0;background:rgba(3,6,10,.72);backdrop-filter:blur(2px);display:none;z-index:1200;padding:20px;overflow:auto}
+.setup-modal{max-width:900px;margin:26px auto;background:var(--bg3);border:1px solid var(--border);border-radius:16px;padding:18px}
+.setup-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;margin-top:10px}
+.setup-item{border:1px solid var(--border);border-radius:12px;background:var(--bg2);padding:12px}
+.setup-item.done{opacity:.7}
+.setup-item h4{margin:0 0 6px;font-size:13px}
+.setup-item p{margin:0 0 10px;color:var(--muted);font-size:11px;line-height:1.45}
+.setup-item .actions{display:flex;gap:8px;flex-wrap:wrap}
+.setup-footer{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:14px}
 </style>
 </head>
 <body>
+<div id="setupOverlay" class="setup-overlay">
+  <div class="setup-modal">
+    <div class="section-title">
+      <h2>First-run Setup Wizard</h2>
+      <span style="font-size:12px;color:var(--muted)">Install now or skip and continue</span>
+    </div>
+    <p style="font-size:12px;color:var(--muted);margin:0">Top-tier onboarding: required dependencies, API setup, and optional recon tools. You can skip any step and revisit later from Config.</p>
+    <div id="setupChecklist" class="setup-grid"></div>
+    <div class="setup-footer">
+      <div id="setupSummary" style="font-size:12px;color:var(--muted)"></div>
+      <div style="display:flex;gap:8px">
+        <button type="button" class="secondary" onclick="skipSetupNow()">Skip for now</button>
+        <button type="button" class="success" onclick="completeSetup()">Complete setup</button>
+      </div>
+    </div>
+  </div>
+</div>
 <header class="top-hud" aria-label="System telemetry">
   <div class="hud-inner">
     <div class="hud-brand"><div><strong>ZWANSKI</strong><span>.BB</span></div></div>
@@ -369,6 +395,7 @@ button.danger{background:var(--red);color:#fff}
         <p style="font-size:12px;color:var(--muted);margin-top:8px"><strong>Git auto-sync:</strong> <code>AUTO_GIT_SYNC=1</code> — commits/pushes after reports (and high/critical finding confirm). Use only on private forks.</p>
         <div style="display:flex;gap:10px;margin-top:16px;">
           <button type="button" class="secondary" onclick="deploy()">Git push (manual)</button>
+          <button type="button" class="secondary" onclick="maybeShowSetupWizard(); showSetupWizard();">Run setup wizard</button>
         </div>
       </div>
     </section>
@@ -395,6 +422,7 @@ let fitAddon = null;
 let netPulse = 0;
 let watchdogPoll = null;
 let termSessionPoll = null;
+let setupItems = [];
 
 function showTab(name) {
   tabs.forEach(el => el.classList.toggle('active', el.dataset.tab === name));
@@ -789,6 +817,92 @@ function addActivityLog(message) {
   if (log.children.length > 60) log.removeChild(log.lastChild);
 }
 
+function setupBadge(item) {
+  if (item.ready) return '<span class="badge installed">ready</span>';
+  if (item.required) return '<span class="badge missing">required</span>';
+  return '<span class="badge badge-running">optional</span>';
+}
+
+function renderSetupWizard(items) {
+  setupItems = items || [];
+  const host = document.getElementById('setupChecklist');
+  const summary = document.getElementById('setupSummary');
+  if (!host || !summary) return;
+  const readyCount = setupItems.filter(i => i.ready).length;
+  summary.textContent = `${readyCount}/${setupItems.length} items ready`;
+  host.innerHTML = setupItems.map(item => `
+    <div class="setup-item ${item.ready ? 'done' : ''}">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
+        <h4>${escapeHtml(item.label)}</h4>
+        ${setupBadge(item)}
+      </div>
+      <p>${escapeHtml(item.description || '')}</p>
+      <div class="actions">
+        ${item.install_cmd ? `<button type="button" class="secondary" onclick="setupInstall('${item.id}', '${encodeURIComponent(item.install_cmd)}')">Install</button>` : ''}
+        ${item.configure_tab ? `<button type="button" class="secondary" onclick="setupConfigure('${item.id}', '${item.configure_tab}')">Configure</button>` : ''}
+        <button type="button" class="danger" onclick="setupSkip('${item.id}')">Skip</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function setupDecision(itemId, decision) {
+  await fetch('/api/setup/decision', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ item_id: itemId, decision }),
+  });
+}
+
+async function setupInstall(itemId, encodedCmd) {
+  const cmd = decodeURIComponent(encodedCmd);
+  await setupDecision(itemId, 'install');
+  socket.emit('run_command', { command: cmd });
+  showTab('terminal');
+  addActivityLog('[SETUP] install → ' + cmd);
+  setTimeout(maybeShowSetupWizard, 1200);
+}
+
+async function setupConfigure(itemId, tabName) {
+  await setupDecision(itemId, 'configure');
+  showTab(tabName || 'settings');
+}
+
+async function setupSkip(itemId) {
+  await setupDecision(itemId, 'skip');
+  addActivityLog('[SETUP] skipped → ' + itemId);
+  maybeShowSetupWizard();
+}
+
+function showSetupWizard() {
+  const el = document.getElementById('setupOverlay');
+  if (el) el.style.display = 'block';
+}
+
+function hideSetupWizard() {
+  const el = document.getElementById('setupOverlay');
+  if (el) el.style.display = 'none';
+}
+
+async function skipSetupNow() {
+  hideSetupWizard();
+}
+
+async function completeSetup() {
+  await fetch('/api/setup/complete', { method: 'POST' });
+  hideSetupWizard();
+  addActivityLog('[SETUP] wizard completed');
+}
+
+async function maybeShowSetupWizard() {
+  try {
+    const res = await fetch('/api/setup/checklist');
+    const data = await res.json();
+    renderSetupWizard(data.items || []);
+    if (data.first_launch) showSetupWizard();
+  } catch (_) {}
+}
+
 function runAgentPipeline() {
   const target = document.getElementById('agentTarget').value.trim();
   if (!target) { alert('Enter a target'); return; }
@@ -901,6 +1015,7 @@ async function saveSettings() {
   const res = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ openrouter_key: key, api_url: apiUrl, model }) });
   const body = await res.json();
   alert(body.ok ? 'Saved' : 'Failed');
+  if (body.ok) maybeShowSetupWizard();
 }
 
 function runScan() {
@@ -1021,6 +1136,7 @@ fetchConfig();
 fetchTasks();
 fetchTermSessions();
 fetch('/api/warmap').then(r => r.json()).then(drawWarmap);
+maybeShowSetupWizard();
 
 /** REST fallback if Socket.IO events are delayed (threading mode / proxies). */
 async function pollHealthFallback() {
