@@ -32,10 +32,21 @@ Open **http://localhost:1337** (or set `PORT` in `.env`).
 | **Agentic** | Multi-phase recon pipeline (`/api/agent/*`) |
 | **Arsenal** | Tool registry, command preview, subdomain/OAuth chains |
 | **Watchdog** | Status + allowlisted tasks for `zwanski-watchdog/` (Docker infra, `pnpm` dev servers, scanner) — [wiki](docs/wiki/watchdog.md) |
-| **Terminal** | xterm stream for all queued jobs |
+| **Terminal** | xterm unified stream + tmux-backed parallel session controls (`/api/term/sessions`) |
 | **Intel AI** | Chat, grading, KB/RAG, exploit-chain hints (OpenRouter-compatible) |
 | **Reports** | Report finalize API |
-| **Config** | Session AI overrides; notes for `SHADOW_MODE`, `AUTO_GIT_SYNC` |
+| **Config** | Session AI overrides; notes for `SHADOW_MODE`, `AUTO_GIT_SYNC`, and setup wizard relaunch |
+
+### First-launch setup wizard
+
+On first dashboard launch, ZWANSKI.BB now opens a guided setup wizard that checks required and recommended prerequisites (tools, API key, and runtime dependencies).  
+Each checklist item supports **Install**, **Configure**, or **Skip**, and users can revisit the flow from **Config → Run setup wizard**.
+
+Wizard APIs:
+
+- `GET /api/setup/checklist`
+- `POST /api/setup/decision`
+- `POST /api/setup/complete`
 
 ### Watchdog environment (optional)
 
@@ -197,6 +208,14 @@ Start using the tools immediately:
 
 # Subdomain reconnaissance
 ./subdomain-recon example.com
+```
+
+Launcher update controls:
+
+```bash
+zwanski autoupdate on      # enable update check on start
+zwanski autoupdate status  # show current auto-update state
+zwanski update             # run one manual update check/pull now
 ```
 
 ### Full Documentation
