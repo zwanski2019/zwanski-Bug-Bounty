@@ -229,6 +229,18 @@ zwanski update             # run one manual update check/pull now
 
 You can **mirror** `docs/wiki/` into [GitHub Wiki](https://docs.github.com/en/communities/documenting-your-project-with-wikis/about-wikis) if you prefer the Wiki tab; the source of truth stays in git here.
 
+One-command sync:
+
+```bash
+bash scripts/sync-github-wiki.sh
+```
+
+Optional explicit repo slug:
+
+```bash
+bash scripts/sync-github-wiki.sh --repo zwanski2019/zwanski-Bug-Bounty
+```
+
 ---
 
 ## 📸 Demo / Proof of Concept
