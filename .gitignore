@@ -33,3 +33,6 @@ Thumbs.db
 nmap_*.txt
 nuclei_*.txt
 subfinder_*.txt
+
+# Local temp workspaces
+.tmp/
