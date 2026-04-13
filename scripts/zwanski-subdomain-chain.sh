@@ -24,18 +24,27 @@ log "Timestamp: $TIMESTAMP"
 # ─────────────────────────────────────────────
 log "Phase 1: Passive subdomain gathering..."
 
-subfinder -d "$TARGET" -all -recursive -silent 2>/dev/null \
-  | anew "$OUTDIR/passive/subfinder.txt" | wc -l | xargs -I{} log "  subfinder: {} subdomains"
+SUBFINDER_COUNT=$(
+  subfinder -d "$TARGET" -all -recursive -silent 2>/dev/null \
+    | anew "$OUTDIR/passive/subfinder.txt" | wc -l
+)
+log "  subfinder: ${SUBFINDER_COUNT// /} subdomains"
 
-assetfinder --subs-only "$TARGET" 2>/dev/null \
-  | anew "$OUTDIR/passive/assetfinder.txt" | wc -l | xargs -I{} log "  assetfinder: {} subdomains"
+ASSETFINDER_COUNT=$(
+  assetfinder --subs-only "$TARGET" 2>/dev/null \
+    | anew "$OUTDIR/passive/assetfinder.txt" | wc -l
+)
+log "  assetfinder: ${ASSETFINDER_COUNT// /} subdomains"
 
 # crt.sh
 log "  Querying crt.sh..."
 curl -s "https://crt.sh/?q=%25.$TARGET&output=json" 2>/dev/null \
   | jq -r '.[].name_value' 2>/dev/null \
   | sed 's/\*\.//g' | tr '[:upper:]' '[:lower:]' | sort -u \
-  | anew "$OUTDIR/passive/crtsh.txt" | wc -l | xargs -I{} log "  crt.sh: {} subdomains"
+  | anew "$OUTDIR/passive/crtsh.txt" | wc -l > "$OUTDIR/passive/.crtsh_count"
+CRTSH_COUNT=$(tr -d '[:space:]' < "$OUTDIR/passive/.crtsh_count")
+rm -f "$OUTDIR/passive/.crtsh_count"
+log "  crt.sh: ${CRTSH_COUNT:-0} subdomains"
 
 # Combine all passive
 cat "$OUTDIR/passive/"*.txt | sort -u > "$OUTDIR/passive/combined_passive.txt"

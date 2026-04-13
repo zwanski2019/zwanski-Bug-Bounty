@@ -174,6 +174,7 @@ PLATFORM="${ZWANSKI_INSTALL_DIR:-$HOME/.zwanski-bb}"
 PORT="${ZWANSKI_PORT:-1337}"
 VENV="$PLATFORM/.venv"
 DASHBOARD_API="http://localhost:$PORT/api"
+AUTOUPDATE_FLAG="$PLATFORM/.autoupdate-enabled"
 if [[ -f "$VENV/bin/activate" ]]; then
   source "$VENV/bin/activate"
 fi
@@ -195,6 +196,44 @@ dashboard_submit(){
   fi
   payload=$(python3 -c 'import json,sys; print(json.dumps({"cmd":" ".join(sys.argv[1:])}))' "$@")
   curl -s -X POST -H 'Content-Type: application/json' -d "$payload" "$DASHBOARD_API/run"
+}
+
+auto_update_enabled(){
+  [[ "${ZWANSKI_AUTO_UPDATE:-}" == "1" || -f "$AUTOUPDATE_FLAG" ]]
+}
+
+run_auto_update(){
+  if ! auto_update_enabled; then
+    return 0
+  fi
+  if [[ ! -d "$PLATFORM/.git" ]]; then
+    echo "[update] skipped: not a git checkout ($PLATFORM)"
+    return 0
+  fi
+  if ! command -v git >/dev/null 2>&1; then
+    echo "[update] skipped: git not found"
+    return 0
+  fi
+
+  echo "[update] checking for updates..."
+  (
+    cd "$PLATFORM" || exit 0
+    git fetch --quiet origin || { echo "[update] fetch failed (offline?)"; exit 0; }
+    local_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+    upstream_ref=$(git rev-parse --abbrev-ref --symbolic-full-name "@{u}" 2>/dev/null || echo "origin/$local_branch")
+    local_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
+    remote_sha=$(git rev-parse "$upstream_ref" 2>/dev/null || echo "")
+    if [[ -z "$local_sha" || -z "$remote_sha" || "$local_sha" == "$remote_sha" ]]; then
+      echo "[update] already up to date"
+      exit 0
+    fi
+    echo "[update] pulling latest changes..."
+    git pull --rebase --autostash || { echo "[update] pull failed; keeping current version"; exit 0; }
+    if [[ -f "requirements.txt" ]]; then
+      pip install -q -r requirements.txt || true
+    fi
+    echo "[update] update applied"
+  )
 }
 
 # Kill existing server processes
@@ -232,6 +271,7 @@ start_dev() {
 case "$1" in
   start)
     shift
+    run_auto_update
     if [[ "$1" == "--prod" ]]; then
       kill_server
       sleep 1
@@ -241,6 +281,33 @@ case "$1" in
       sleep 1
       start_dev
     fi
+    ;;
+  update)
+    run_auto_update
+    ;;
+  autoupdate)
+    case "$2" in
+      on)
+        mkdir -p "$PLATFORM"
+        touch "$AUTOUPDATE_FLAG"
+        echo "Auto-update enabled."
+        ;;
+      off)
+        rm -f "$AUTOUPDATE_FLAG"
+        echo "Auto-update disabled."
+        ;;
+      status|"")
+        if auto_update_enabled; then
+          echo "Auto-update: enabled"
+        else
+          echo "Auto-update: disabled"
+        fi
+        ;;
+      *)
+        echo "Usage: zwanski autoupdate [on|off|status]"
+        exit 1
+        ;;
+    esac
     ;;
   stop|"")
     kill_server
@@ -308,6 +375,8 @@ Usage: zwanski [command] [options]
 Commands:
   start [--prod]   Start the localhost dashboard (use --prod for Gunicorn)
   stop             Stop the dashboard
+  update           Check and pull latest updates now
+  autoupdate       Control auto-update (on|off|status)
   status           Show dashboard and tools status
   health           Show integrated tools health status
   run <command>    Run a security tool via the dashboard
@@ -322,6 +391,7 @@ Mobile C2 (OpenClaw):
 Examples:
   zwanski start                    # Development mode
   zwanski start --prod             # Production mode with Gunicorn
+  zwanski autoupdate on            # Enable auto-update on start
   zwanski status                   # Check system status
   zwanski health                  # Check tools health
   zwanski recon example.com        # Recon a target
