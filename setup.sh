@@ -100,7 +100,9 @@ info "Creating convenience wrapper scripts..."
 # OAuth mapper wrapper
 cat > "$SCRIPT_DIR/oauth-mapper" << 'EOF'
 #!/bin/bash
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+set -e
+SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$( cd "$( dirname "$SCRIPT_PATH" )" && pwd )"
 source "$SCRIPT_DIR/.venv/bin/activate"
 python3 "$SCRIPT_DIR/scripts/zwanski-oauth-mapper.py" "$@"
 EOF
@@ -110,7 +112,9 @@ log "Created: ./oauth-mapper"
 # Subdomain chain wrapper
 cat > "$SCRIPT_DIR/subdomain-recon" << 'EOF'
 #!/bin/bash
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+set -e
+SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$( cd "$( dirname "$SCRIPT_PATH" )" && pwd )"
 bash "$SCRIPT_DIR/scripts/zwanski-subdomain-chain.sh" "$@"
 EOF
 chmod +x "$SCRIPT_DIR/subdomain-recon"
