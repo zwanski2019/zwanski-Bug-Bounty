@@ -1603,4 +1603,4 @@ if __name__ == "__main__":
     free_port(port)
     threading.Timer(1.2, lambda: open_browser(port)).start()
     print(f"Starting ZWANSKI dashboard on http://localhost:{port}")
-    socketio.run(app, host="0.0.0.0", port=port, debug=False)
+    socketio.run(app, host="0.0.0.0", port=port, debug=False, allow_unsafe_werkzeug=True)
