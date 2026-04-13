@@ -16,6 +16,7 @@ import threading
 import time
 import uuid
 import webbrowser
+from urllib.parse import urlparse
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -1126,13 +1127,17 @@ def api_health():
 def api_agent_run():
     """Start an agent pipeline for a target."""
     body = request.get_json(silent=True) or {}
-    target = body.get("target", "").strip()
-    if not target:
+    raw_target = body.get("target", "").strip()
+    if not raw_target:
         return jsonify({"error": "Target (domain) is required."}), 400
-    
-    # Validate target format
+
+    # Accept common forms like https://example.com or example.com/path.
+    parsed = urlparse(raw_target if "://" in raw_target else f"//{raw_target}")
+    target = (parsed.hostname or raw_target).strip().lower().rstrip(".")
+
+    # Validate normalized hostname format.
     if not target.replace(".", "").replace("-", "").isalnum():
-        return jsonify({"error": "Invalid target format."}), 400
+        return jsonify({"error": "Invalid target format. Use a domain like example.com."}), 400
     
     pipeline_id = uuid.uuid4().hex
     pipeline = AgentPipeline(target)
