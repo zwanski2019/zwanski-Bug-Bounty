@@ -293,9 +293,11 @@ button.danger{background:var(--red);color:#fff}
         <div class="section-title"><h2>Unified stream</h2><span id="currentTaskLabel" style="color:var(--muted);font-size:12px"></span></div>
         <div class="term-toolbar">
           <label><input type="checkbox" id="followAll" checked /> Multiplex all tasks</label>
+          <button type="button" class="secondary" onclick="fetchTermSessions()">Refresh panes</button>
           <button type="button" class="secondary" onclick="clearTerminal()">Clear</button>
           <button type="button" class="secondary" onclick="fitTerm()">Fit</button>
         </div>
+        <div id="terminalSessions" style="margin-bottom:10px"></div>
         <div id="terminalHost"></div>
       </div>
     </section>
@@ -392,12 +394,16 @@ let term = null;
 let fitAddon = null;
 let netPulse = 0;
 let watchdogPoll = null;
+let termSessionPoll = null;
 
 function showTab(name) {
   tabs.forEach(el => el.classList.toggle('active', el.dataset.tab === name));
   panels.forEach(p => { p.style.display = p.id === name ? 'block' : 'none'; });
   if (name === 'terminal') {
     requestAnimationFrame(() => { initXterm(); fitTerm(); });
+    fetchTermSessions();
+    if (termSessionPoll) clearInterval(termSessionPoll);
+    termSessionPoll = setInterval(fetchTermSessions, 5000);
   }
   if (name === 'watchdog') {
     refreshWatchdog();
@@ -406,6 +412,10 @@ function showTab(name) {
   } else if (watchdogPoll) {
     clearInterval(watchdogPoll);
     watchdogPoll = null;
+  }
+  if (name !== 'terminal' && termSessionPoll) {
+    clearInterval(termSessionPoll);
+    termSessionPoll = null;
   }
 }
 tabs.forEach(el => el.addEventListener('click', () => showTab(el.dataset.tab)));
@@ -637,6 +647,51 @@ function renderTaskList() {
       </div>
     </div>
   `).join('');
+}
+
+function renderTermSessions(data) {
+  const host = document.getElementById('terminalSessions');
+  if (!host) return;
+  const sessions = (data.sessions || []).slice(0, 10);
+  if (!sessions.length) {
+    host.innerHTML = '<p style="color:var(--muted);font-size:12px;margin:0 0 6px">No active tmux panes.</p>';
+    return;
+  }
+  host.innerHTML = sessions.map(s => `
+    <div class="tool" style="margin-bottom:6px;padding:8px 10px">
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:center">
+        <div style="font-size:12px">
+          <strong>${escapeHtml((s.label || '').slice(0, 56))}</strong>
+          <div style="color:var(--muted)">session: ${escapeHtml(s.session_name || 'proc')} · pane: ${escapeHtml(s.pane_id || '-')} · ${escapeHtml(s.status || '-')}</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button type="button" class="secondary" onclick="openTask('${s.task_id}')">Attach</button>
+          <button type="button" class="danger" onclick="killTermSession('${s.task_id}')">Kill</button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function fetchTermSessions() {
+  try {
+    const res = await fetch('/api/term/sessions');
+    if (!res.ok) return;
+    const data = await res.json();
+    renderTermSessions(data);
+  } catch (_) {}
+}
+
+async function killTermSession(taskId) {
+  if (!confirm('Kill this terminal session?')) return;
+  const res = await fetch('/api/term/' + taskId + '/kill', { method: 'POST' });
+  const data = await res.json();
+  if (!res.ok) {
+    alert(data.error || 'Failed');
+    return;
+  }
+  fetchTasks();
+  fetchTermSessions();
 }
 
 function escapeHtml(s) {
@@ -934,6 +989,7 @@ socket.on('task_started', data => {
   currentTaskId = data.task_id;
   document.getElementById('currentTaskLabel').textContent = data.cmd;
   updateTask({ id: data.task_id, cmd: data.cmd, status: data.status });
+  fetchTermSessions();
   initXterm();
   if (term) term.writeln('\r\n\x1b[32m▶\x1b[0m ' + data.cmd + '\r\n');
 });
@@ -963,6 +1019,7 @@ socket.on('exploit_chains', d => {
 fetchTools();
 fetchConfig();
 fetchTasks();
+fetchTermSessions();
 fetch('/api/warmap').then(r => r.json()).then(drawWarmap);
 
 /** REST fallback if Socket.IO events are delayed (threading mode / proxies). */

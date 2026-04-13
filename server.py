@@ -185,6 +185,10 @@ class Task:
         self.updated_at = self.created_at
         self.logs = []
         self.proc = None
+        self.pid = None
+        self.session_name = None
+        self.pane_id = None
+        self.archived = False
 
     def append_output(self, text, stream="stdout"):
         self.logs.append({"stream": stream, "text": text, "timestamp": utc_now_iso_z()})
@@ -204,7 +208,11 @@ class Task:
             "updated_at": self.updated_at,
             "stdout": self.stdout,
             "stderr": self.stderr,
-            "summary": self.logs[-1]["text"] if self.logs else ""
+            "summary": self.logs[-1]["text"] if self.logs else "",
+            "pid": self.pid,
+            "session_name": self.session_name,
+            "pane_id": self.pane_id,
+            "archived": self.archived,
         }
         if include_logs:
             data["logs"] = self.logs
@@ -214,11 +222,10 @@ class Task:
 class TaskManager:
     def __init__(self, persistence_file=None):
         self.tasks = {}
-        self.queue = queue.Queue()
+        self.lock = threading.Lock()
         self.persistence_file = persistence_file or (ROOT / "tasks.json")
+        self.tmux_available = shutil.which("tmux") is not None
         self._load_tasks()
-        self.worker = threading.Thread(target=self._worker_loop, daemon=True)
-        self.worker.start()
 
     def _load_tasks(self):
         if not self.persistence_file.exists():
@@ -237,6 +244,10 @@ class TaskManager:
                 task.created_at = item.get("created_at", task.created_at)
                 task.updated_at = item.get("updated_at", task.updated_at)
                 task.logs = item.get("logs", [])
+                task.pid = item.get("pid")
+                task.session_name = item.get("session_name")
+                task.pane_id = item.get("pane_id")
+                task.archived = item.get("archived", False)
                 self.tasks[task.id] = task
         except Exception:
             pass
@@ -247,19 +258,59 @@ class TaskManager:
         except Exception:
             pass
 
-    def _worker_loop(self):
-        while True:
-            task = self.queue.get()
-            self._execute_task(task)
-            self.queue.task_done()
-
     def submit(self, cmd):
         task = Task(cmd)
-        self.tasks[task.id] = task
+        with self.lock:
+            self.tasks[task.id] = task
         self._save_tasks()
         self._emit_task_update(task)
-        self.queue.put(task)
+        threading.Thread(target=self._execute_task, args=(task,), daemon=True).start()
         return task
+
+    def _run_tmux(self, args):
+        return subprocess.run(["tmux"] + args, capture_output=True, text=True)
+
+    def _capture_tmux(self, pane_id):
+        result = self._run_tmux(["capture-pane", "-pt", pane_id, "-S", "-4000", "-J"])
+        return result.stdout if result.returncode == 0 else ""
+
+    def _execute_tmux_task(self, task):
+        task.session_name = f"zw_{task.id[:8]}"
+        quoted_cmd = shlex.quote(f'cd "{ROOT}" && {task.cmd}')
+        wrapped = f"bash -lc {quoted_cmd}; rc=$?; echo __ZW_EXIT__:$rc"
+        created = self._run_tmux(["new-session", "-d", "-P", "-F", "#{pane_id}", "-s", task.session_name, wrapped])
+        if created.returncode != 0:
+            raise RuntimeError(created.stderr.strip() or "failed to create tmux session")
+        task.pane_id = created.stdout.strip()
+        marker_re = re.compile(r"__ZW_EXIT__:(\d+)")
+        last = ""
+        returncode = None
+        idle_ticks = 0
+        while True:
+            captured = self._capture_tmux(task.pane_id)
+            if captured and captured != last:
+                if captured.startswith(last):
+                    delta = captured[len(last):]
+                else:
+                    delta = captured
+                if delta:
+                    task.append_output(delta, stream="stdout")
+                    self._emit_task_output(task, delta, "stdout")
+                last = captured
+                idle_ticks = 0
+            else:
+                idle_ticks += 1
+            marker = marker_re.search(captured or "")
+            if marker:
+                returncode = int(marker.group(1))
+            alive = self._run_tmux(["has-session", "-t", task.session_name]).returncode == 0
+            if returncode is not None and (not alive or idle_ticks > 2):
+                break
+            time.sleep(0.7)
+        if alive:
+            self._run_tmux(["kill-session", "-t", task.session_name])
+        task.returncode = 0 if returncode is None else returncode
+        task.archived = True
 
     def _execute_task(self, task):
         task.status = "running"
@@ -267,34 +318,38 @@ class TaskManager:
         self._save_tasks()
         self._emit_task_update(task)
         try:
-            proc = subprocess.Popen(
-                task.cmd,
-                shell=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                cwd=str(ROOT)
-            )
-            task.proc = proc
+            if self.tmux_available:
+                self._execute_tmux_task(task)
+            else:
+                proc = subprocess.Popen(
+                    task.cmd,
+                    shell=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    cwd=str(ROOT)
+                )
+                task.proc = proc
+                task.pid = proc.pid
 
-            def read_stream(stream, stream_name):
-                for line in iter(stream.readline, ""):
-                    if not line:
-                        break
-                    task.append_output(line, stream=stream_name)
-                    self._emit_task_output(task, line, stream_name)
-                    print(f"[task:{task.id}][{stream_name}] {line.rstrip()}", flush=True)
-                stream.close()
+                def read_stream(stream, stream_name):
+                    for line in iter(stream.readline, ""):
+                        if not line:
+                            break
+                        task.append_output(line, stream=stream_name)
+                        self._emit_task_output(task, line, stream_name)
+                        print(f"[task:{task.id}][{stream_name}] {line.rstrip()}", flush=True)
+                    stream.close()
 
-            stdout_thread = threading.Thread(target=read_stream, args=(proc.stdout, "stdout"), daemon=True)
-            stderr_thread = threading.Thread(target=read_stream, args=(proc.stderr, "stderr"), daemon=True)
-            stdout_thread.start()
-            stderr_thread.start()
-            proc.wait()
-            stdout_thread.join()
-            stderr_thread.join()
-            task.returncode = proc.returncode
-            task.status = "completed" if proc.returncode == 0 else "failed"
+                stdout_thread = threading.Thread(target=read_stream, args=(proc.stdout, "stdout"), daemon=True)
+                stderr_thread = threading.Thread(target=read_stream, args=(proc.stderr, "stderr"), daemon=True)
+                stdout_thread.start()
+                stderr_thread.start()
+                proc.wait()
+                stdout_thread.join()
+                stderr_thread.join()
+                task.returncode = proc.returncode
+            task.status = "completed" if task.returncode == 0 else "failed"
         except Exception as exc:
             task.append_output(str(exc) + "\n", stream="stderr")
             task.status = "failed"
@@ -325,17 +380,40 @@ class TaskManager:
 
     def abort(self, task_id):
         task = self.get_task(task_id)
-        if not task or not task.proc or task.proc.poll() is not None:
+        if not task:
             return False
         try:
-            task.proc.terminate()
+            if task.session_name and self.tmux_available:
+                self._run_tmux(["kill-session", "-t", task.session_name])
+            elif task.proc and task.proc.poll() is None:
+                task.proc.terminate()
+            else:
+                return False
             task.status = "cancelled"
+            task.archived = True
             task.updated_at = utc_now_iso_z()
             self._save_tasks()
             self._emit_task_update(task)
             return True
         except Exception:
             return False
+
+    def list_terminals(self):
+        out = []
+        for task in self.list_tasks():
+            if task.get("session_name") or task.get("pid"):
+                out.append(
+                    {
+                        "task_id": task["id"],
+                        "label": task["cmd"][:64],
+                        "status": task["status"],
+                        "pid": task.get("pid"),
+                        "session_name": task.get("session_name"),
+                        "pane_id": task.get("pane_id"),
+                        "archived": task.get("archived", False),
+                    }
+                )
+        return out
 
 
 task_manager = TaskManager()
@@ -1034,6 +1112,18 @@ def api_task_abort(task_id):
     if task_manager.abort(task_id):
         return jsonify({"ok": True})
     return jsonify({"error": "Unable to abort task."}), 400
+
+
+@app.route("/api/term/sessions", methods=["GET"])
+def api_term_sessions():
+    return jsonify({"sessions": task_manager.list_terminals()})
+
+
+@app.route("/api/term/<task_id>/kill", methods=["POST"])
+def api_term_kill(task_id):
+    if task_manager.abort(task_id):
+        return jsonify({"ok": True})
+    return jsonify({"error": "Unable to kill terminal session."}), 400
 
 
 @app.route("/api/deploy", methods=["POST"])
