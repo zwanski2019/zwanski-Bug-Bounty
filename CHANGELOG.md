@@ -5,6 +5,109 @@ All notable changes to ZWANSKI Bug Bounty Platform will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-04-23 "The Hunter"
+
+### 🔥 GAME-CHANGING FEATURES
+
+This is THE update. No one has built this for bug bounty hunters.
+
+#### 🖥️ Multi-Terminal Manager
+- **Unlimited Terminal Sessions**: Spin up as many terminals as your system can handle
+- **tmux Backend**: Full session persistence, survive crashes/disconnects
+- **Split Panes**: Vertical/horizontal splits with independent panes
+- **Session Save/Restore**: Export full terminal history to files
+- **Real-time Output**: Live terminal streaming via WebSocket
+- **Command Injection**: Send commands programmatically to any session
+- **API Endpoints**: 8 new endpoints for full terminal control
+
+#### 🎯 Port Scanner Dashboard
+- **Triple Scanner Integration**: nmap, masscan, rustscan all in one dashboard
+- **Real-time Results**: Watch ports appear as they're discovered
+- **Visual Attack Surface**: See your target's open ports at a glance
+- **Service Detection**: Auto-identify running services (HTTP, SSH, FTP, etc.)
+- **Scan Persistence**: All scans saved with full history
+- **Scanner Stats**: Track total scans, open ports, top services
+- **API Endpoints**: 8 new endpoints for port scanning automation
+
+**Supported Scanners:**
+- **nmap** - Full service detection, aggressive mode, custom port ranges
+- **masscan** - Ultra-fast scanning (10,000+ ports/sec)
+- **rustscan** - Fastest port scanner, then passes to nmap for service detection
+
+#### 🤖 OpenClaw Bug Bounty Agent
+- **Mobile C2 Integration**: Control recon from Telegram/WhatsApp/Discord
+- **Automated Workflows**: Pre-built recon pipelines (full_recon, quick_scan, deep_hunt, api_hunt)
+- **Real-time Notifications**: Get notified on mobile as findings appear
+- **Agent Management**: Create unlimited agents, each with own workflows
+- **Finding Aggregation**: Auto-parse tool output into structured findings
+- **Custom Workflows**: Build your own multi-tool recon chains
+- **API Endpoints**: 9 new endpoints for agent automation
+
+**Pre-built Workflows:**
+- **full_recon**: subfinder → httpx → nuclei → katana
+- **quick_scan**: subfinder → httpx → nuclei (high/critical only)
+- **deep_hunt**: amass → nmap → nuclei → sqlmap → dalfox
+- **api_hunt**: katana → arjun → ffuf → nuclei (API-focused)
+
+### Added (Total: 25 new API endpoints)
+
+**Terminal Manager:**
+- `GET /api/terminals` - List all sessions
+- `POST /api/terminals` - Create new session
+- `GET /api/terminals/:id/output` - Get terminal output
+- `POST /api/terminals/:id/command` - Send command
+- `POST /api/terminals/:id/split` - Split pane
+- `DELETE /api/terminals/:id` - Close session
+- `POST /api/terminals/:id/save` - Save history
+- `GET /api/terminals/stats` - Statistics
+
+**Port Scanner:**
+- `GET /api/portscan` - List all scans
+- `POST /api/portscan/nmap` - Start nmap scan
+- `POST /api/portscan/masscan` - Start masscan
+- `POST /api/portscan/rustscan` - Start rustscan
+- `GET /api/portscan/:id` - Get scan results
+- `DELETE /api/portscan/:id` - Delete scan
+- `GET /api/portscan/stats` - Statistics
+
+**OpenClaw Agent:**
+- `GET /api/agents` - List all agents
+- `POST /api/agents` - Create agent
+- `GET /api/agents/:id` - Get agent status
+- `POST /api/agents/:id/recon` - Start recon workflow
+- `POST /api/agents/:id/stop` - Stop agent
+- `GET /api/agents/workflows` - List workflows
+- `POST /api/agents/workflows` - Add custom workflow
+- `GET /api/agents/stats` - Statistics
+
+### New Files
+
+- `terminal_manager.py` (17KB) - Multi-terminal session manager
+- `port_scanner.py` (16KB) - Port scanning dashboard
+- `openclaw_agent.py` (17KB) - Bug bounty automation agent
+
+### Technical Details
+
+- **tmux Integration**: Full tmux session control for terminal management
+- **Background Scanning**: All port scans run in background threads
+- **Real-time Updates**: WebSocket support for live terminal streaming
+- **Parser Engine**: Intelligent parsing of tool outputs (nmap XML, masscan JSON, etc.)
+- **Workflow Engine**: Extensible system for custom recon workflows
+- **Mobile-First**: OpenClaw agent designed for mobile C2 from day one
+
+### Performance
+
+- **Terminal Sessions**: Unlimited (resource-limited only)
+- **Concurrent Scans**: Up to 10 simultaneous port scans
+- **Agent Workflows**: Process 4-5 tools per workflow automatically
+- **Storage**: JSON-based, no database required
+
+### Breaking Changes
+
+None. Fully backward compatible with v2.1.0.
+
+---
+
 ## [2.1.0] - 2026-04-23
 
 ### Added

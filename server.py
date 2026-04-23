@@ -38,6 +38,9 @@ from shadow_client import shadow_request
 from version_manager import version_manager
 from reporting_enhanced import cvss_calculator, finding_tracker, report_generator
 from scope_manager import scope_manager
+from terminal_manager import terminal_manager
+from port_scanner import port_scanner
+from openclaw_agent import openclaw_agent
 
 WARMAP_STATE = {"hosts": [], "ports": [], "edges": [], "updated_at": None}
 _NET_LAST = {"sent": None, "recv": None}
@@ -2005,6 +2008,238 @@ def api_scope_parse():
 def api_scope_stats():
     """Get scope statistics."""
     stats = scope_manager.get_stats()
+    return jsonify(stats)
+
+
+# ======================
+# MULTI-TERMINAL MANAGER (v2.2.0)
+# ======================
+
+@app.route("/api/terminals", methods=["GET"])
+def api_terminals_list():
+    """List all terminal sessions."""
+    sessions = terminal_manager.list_sessions()
+    return jsonify({"sessions": sessions})
+
+
+@app.route("/api/terminals", methods=["POST"])
+def api_terminals_create():
+    """Create a new terminal session."""
+    data = request.get_json()
+    name = data.get("name", "Terminal")
+    command = data.get("command")
+    
+    result = terminal_manager.create_session(name, command)
+    return jsonify(result)
+
+
+@app.route("/api/terminals/<session_id>/output", methods=["GET"])
+def api_terminals_output(session_id):
+    """Get terminal output."""
+    lines = int(request.args.get("lines", 100))
+    result = terminal_manager.get_session_output(session_id, lines)
+    return jsonify(result)
+
+
+@app.route("/api/terminals/<session_id>/command", methods=["POST"])
+def api_terminals_command(session_id):
+    """Send command to terminal."""
+    data = request.get_json()
+    command = data.get("command", "")
+    
+    result = terminal_manager.send_command(session_id, command)
+    return jsonify(result)
+
+
+@app.route("/api/terminals/<session_id>/split", methods=["POST"])
+def api_terminals_split(session_id):
+    """Split terminal pane."""
+    data = request.get_json()
+    vertical = data.get("vertical", True)
+    
+    result = terminal_manager.split_pane(session_id, vertical)
+    return jsonify(result)
+
+
+@app.route("/api/terminals/<session_id>", methods=["DELETE"])
+def api_terminals_delete(session_id):
+    """Close terminal session."""
+    result = terminal_manager.close_session(session_id)
+    return jsonify(result)
+
+
+@app.route("/api/terminals/<session_id>/save", methods=["POST"])
+def api_terminals_save(session_id):
+    """Save terminal history."""
+    result = terminal_manager.save_session_history(session_id)
+    return jsonify(result)
+
+
+@app.route("/api/terminals/stats", methods=["GET"])
+def api_terminals_stats():
+    """Get terminal statistics."""
+    stats = terminal_manager.get_stats()
+    return jsonify(stats)
+
+
+# ======================
+# PORT SCANNER DASHBOARD (v2.2.0)
+# ======================
+
+@app.route("/api/portscan", methods=["GET"])
+def api_portscan_list():
+    """List all port scans."""
+    target = request.args.get("target")
+    scans = port_scanner.list_scans(target)
+    return jsonify({"scans": scans})
+
+
+@app.route("/api/portscan/nmap", methods=["POST"])
+def api_portscan_nmap():
+    """Start nmap scan."""
+    data = request.get_json()
+    target = data.get("target")
+    ports = data.get("ports", "1-65535")
+    aggressive = data.get("aggressive", False)
+    service_detection = data.get("service_detection", True)
+    
+    if not target:
+        return jsonify({"error": "Target required"}), 400
+    
+    result = port_scanner.start_nmap_scan(target, ports, aggressive, service_detection)
+    return jsonify(result)
+
+
+@app.route("/api/portscan/masscan", methods=["POST"])
+def api_portscan_masscan():
+    """Start masscan."""
+    data = request.get_json()
+    target = data.get("target")
+    ports = data.get("ports", "0-65535")
+    rate = data.get("rate", 10000)
+    
+    if not target:
+        return jsonify({"error": "Target required"}), 400
+    
+    result = port_scanner.start_masscan_scan(target, ports, rate)
+    return jsonify(result)
+
+
+@app.route("/api/portscan/rustscan", methods=["POST"])
+def api_portscan_rustscan():
+    """Start rustscan."""
+    data = request.get_json()
+    target = data.get("target")
+    ports = data.get("ports")
+    fast = data.get("fast", True)
+    
+    if not target:
+        return jsonify({"error": "Target required"}), 400
+    
+    result = port_scanner.start_rustscan_scan(target, ports, fast)
+    return jsonify(result)
+
+
+@app.route("/api/portscan/<scan_id>", methods=["GET"])
+def api_portscan_get(scan_id):
+    """Get scan results."""
+    result = port_scanner.get_scan(scan_id)
+    if result:
+        return jsonify(result)
+    return jsonify({"error": "Scan not found"}), 404
+
+
+@app.route("/api/portscan/<scan_id>", methods=["DELETE"])
+def api_portscan_delete(scan_id):
+    """Delete scan."""
+    success = port_scanner.delete_scan(scan_id)
+    return jsonify({"success": success})
+
+
+@app.route("/api/portscan/stats", methods=["GET"])
+def api_portscan_stats():
+    """Get port scanning statistics."""
+    stats = port_scanner.get_stats()
+    return jsonify(stats)
+
+
+# ======================
+# OPENCLAW BUG BOUNTY AGENT (v2.2.0)
+# ======================
+
+@app.route("/api/agents", methods=["GET"])
+def api_agents_list():
+    """List all bug bounty agents."""
+    agents = openclaw_agent.list_agents()
+    return jsonify({"agents": agents})
+
+
+@app.route("/api/agents", methods=["POST"])
+def api_agents_create():
+    """Create a new bug bounty agent."""
+    data = request.get_json()
+    auto_mode = data.get("auto_mode", False)
+    
+    result = openclaw_agent.create_agent(auto_mode)
+    return jsonify(result)
+
+
+@app.route("/api/agents/<agent_id>", methods=["GET"])
+def api_agents_get(agent_id):
+    """Get agent status."""
+    agent = openclaw_agent.get_agent(agent_id)
+    if agent:
+        return jsonify(agent)
+    return jsonify({"error": "Agent not found"}), 404
+
+
+@app.route("/api/agents/<agent_id>/recon", methods=["POST"])
+def api_agents_recon(agent_id):
+    """Start reconnaissance workflow."""
+    data = request.get_json()
+    target = data.get("target")
+    workflow = data.get("workflow", "full_recon")
+    notify = data.get("notify", True)
+    
+    if not target:
+        return jsonify({"error": "Target required"}), 400
+    
+    result = openclaw_agent.start_recon(agent_id, target, workflow, notify)
+    return jsonify(result)
+
+
+@app.route("/api/agents/<agent_id>/stop", methods=["POST"])
+def api_agents_stop(agent_id):
+    """Stop running agent."""
+    result = openclaw_agent.stop_agent(agent_id)
+    return jsonify(result)
+
+
+@app.route("/api/agents/workflows", methods=["GET"])
+def api_agents_workflows():
+    """Get available workflows."""
+    workflows = openclaw_agent.get_workflows()
+    return jsonify({"workflows": workflows})
+
+
+@app.route("/api/agents/workflows", methods=["POST"])
+def api_agents_add_workflow():
+    """Add custom workflow."""
+    data = request.get_json()
+    name = data.get("name")
+    steps = data.get("steps", [])
+    
+    if not name or not steps:
+        return jsonify({"error": "Name and steps required"}), 400
+    
+    result = openclaw_agent.add_custom_workflow(name, steps)
+    return jsonify(result)
+
+
+@app.route("/api/agents/stats", methods=["GET"])
+def api_agents_stats():
+    """Get agent statistics."""
+    stats = openclaw_agent.get_stats()
     return jsonify(stats)
 
 
