@@ -94,6 +94,23 @@ button.danger{background:var(--red);color:#fff}
 .main-footer{margin-top:36px;padding-top:18px;border-top:1px solid var(--border);font-size:12px;color:var(--muted);display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center}
 .main-footer a{color:var(--cyan);text-decoration:none}
 .main-footer a:hover{text-decoration:underline}
+.update-banner{position:fixed;top:52px;left:0;right:0;z-index:999;background:linear-gradient(135deg,#0891b2,#22c55e);color:#fff;padding:12px 20px;display:none;align-items:center;justify-content:space-between;gap:14px;box-shadow:0 4px 20px rgba(34,211,238,.3);font-size:13px;font-weight:500}
+.update-banner.visible{display:flex}
+.update-content{display:flex;align-items:center;gap:12px}
+.update-icon{font-size:18px;animation:updatePulse 1.5s ease-in-out infinite}
+@keyframes updatePulse{0%,100%{transform:scale(1)}50%{transform:scale(1.1)}}
+.update-actions{display:flex;gap:10px}
+.update-btn{background:#fff;color:#0891b2;border:none;border-radius:8px;padding:7px 14px;cursor:pointer;font-weight:600;font-size:12px;transition:all .2s}
+.update-btn:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.2)}
+.update-btn.secondary{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.4)}
+.changelog-modal{position:fixed;inset:0;background:rgba(3,6,10,.85);backdrop-filter:blur(3px);display:none;z-index:1300;padding:20px;overflow:auto}
+.changelog-modal.visible{display:block}
+.changelog-content{max-width:700px;margin:40px auto;background:var(--bg3);border:1px solid var(--border);border-radius:16px;padding:24px}
+.changelog-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)}
+.changelog-body{max-height:500px;overflow-y:auto;font-size:13px;line-height:1.7}
+.changelog-body h3{color:var(--cyan);margin:16px 0 8px;font-size:15px}
+.changelog-body ul{padding-left:20px}
+.changelog-body li{margin:6px 0}
 .setup-overlay{position:fixed;inset:0;background:rgba(3,6,10,.72);backdrop-filter:blur(2px);display:none;z-index:1200;padding:20px;overflow:auto}
 .setup-modal{max-width:900px;margin:26px auto;background:var(--bg3);border:1px solid var(--border);border-radius:16px;padding:18px}
 .setup-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;margin-top:10px}
@@ -138,6 +155,32 @@ button.danger{background:var(--red);color:#fff}
   </div>
 </header>
 
+<!-- Update Notification Banner -->
+<div id="updateBanner" class="update-banner">
+  <div class="update-content">
+    <span class="update-icon">🎁</span>
+    <span id="updateMessage">Update available!</span>
+  </div>
+  <div class="update-actions">
+    <button type="button" class="update-btn" onclick="viewChangelog()">View changes</button>
+    <button type="button" class="update-btn" onclick="performUpdate()">Update now</button>
+    <button type="button" class="update-btn secondary" onclick="dismissUpdate()">Dismiss</button>
+  </div>
+</div>
+
+<!-- Changelog Modal -->
+<div id="changelogModal" class="changelog-modal">
+  <div class="changelog-content">
+    <div class="changelog-header">
+      <h2 style="margin:0">What's new in ZWANSKI.BB</h2>
+      <button type="button" class="secondary" onclick="closeChangelog()">Close</button>
+    </div>
+    <div class="changelog-body" id="changelogBody">
+      Loading changelog...
+    </div>
+  </div>
+</div>
+
 <div class="shell">
   <aside class="sidebar">
     <div class="logo">ZWANSKI<span>.BB</span></div>
@@ -145,6 +188,9 @@ button.danger{background:var(--red);color:#fff}
     <div class="nav-item" data-tab="system">Telemetry</div>
     <div class="nav-item" data-tab="agents">Agentic</div>
     <div class="nav-item" data-tab="tools">Arsenal</div>
+    <div class="nav-item" data-tab="findings">Findings</div>
+    <div class="nav-item" data-tab="scope">Scope</div>
+    <div class="nav-item" data-tab="cvss">CVSS Calc</div>
     <div class="nav-item" data-tab="watchdog">Watchdog</div>
     <div class="nav-item" data-tab="terminal">Terminal</div>
     <div class="nav-item" data-tab="ai">Intel AI</div>
@@ -383,6 +429,224 @@ button.danger{background:var(--red);color:#fff}
       </div>
     </section>
 
+    <section id="findings" class="tab-panel" style="display:none">
+      <div class="card">
+        <div class="section-title">
+          <h2>Finding Tracker</h2>
+          <button type="button" onclick="showAddFinding()">+ New Finding</button>
+        </div>
+        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+          <select id="findingFilterSeverity" onchange="loadFindings()" style="width:auto">
+            <option value="">All Severities</option>
+            <option value="CRITICAL">Critical</option>
+            <option value="HIGH">High</option>
+            <option value="MEDIUM">Medium</option>
+            <option value="LOW">Low</option>
+            <option value="NONE">None</option>
+          </select>
+          <select id="findingFilterStatus" onchange="loadFindings()" style="width:auto">
+            <option value="">All Statuses</option>
+            <option value="new">New</option>
+            <option value="submitted">Submitted</option>
+            <option value="triaged">Triaged</option>
+            <option value="resolved">Resolved</option>
+            <option value="duplicate">Duplicate</option>
+            <option value="n/a">N/A</option>
+          </select>
+          <input type="text" id="findingFilterTarget" placeholder="Filter by target..." onkeyup="loadFindings()" style="width:200px" />
+        </div>
+        <div id="findingsStats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px"></div>
+        <div id="findingsList"></div>
+      </div>
+      
+      <!-- Add/Edit Finding Modal -->
+      <div id="findingModal" style="position:fixed;inset:0;background:rgba(3,6,10,.85);backdrop-filter:blur(3px);display:none;z-index:1300;padding:20px;overflow:auto">
+        <div style="max-width:800px;margin:40px auto;background:var(--bg3);border:1px solid var(--border);border-radius:16px;padding:24px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)">
+            <h2 style="margin:0">Add Finding</h2>
+            <button type="button" class="secondary" onclick="closeFindingModal()">Close</button>
+          </div>
+          <div style="display:grid;gap:14px">
+            <div><label>Title</label><input type="text" id="findingTitle" placeholder="e.g., Stored XSS in profile bio" /></div>
+            <div><label>Target</label><input type="text" id="findingTarget" placeholder="e.g., example.com" /></div>
+            <div><label>Platform</label>
+              <select id="findingPlatform">
+                <option>HackerOne</option>
+                <option>Bugcrowd</option>
+                <option>Synack</option>
+                <option>Intigriti</option>
+                <option>YesWeHack</option>
+                <option>Bug Bounty Switzerland</option>
+                <option>Custom</option>
+              </select>
+            </div>
+            <div><label>Summary</label><textarea id="findingSummary" rows="3" placeholder="Brief description of the vulnerability..."></textarea></div>
+            <div><label>Impact</label><textarea id="findingImpact" rows="2" placeholder="What can an attacker do?"></textarea></div>
+            <div><label>Reproduction Steps (one per line)</label><textarea id="findingSteps" rows="4" placeholder="1. Navigate to...\n2. Click...\n3. Observe..."></textarea></div>
+            <div><label>Proof of Concept</label><textarea id="findingPoC" rows="3" placeholder="Code, screenshots, or curl commands..."></textarea></div>
+            <div><label>Remediation</label><textarea id="findingRemediation" rows="2" placeholder="How to fix this..."></textarea></div>
+            <div><label>Status</label>
+              <select id="findingStatus">
+                <option value="new">New</option>
+                <option value="submitted">Submitted</option>
+                <option value="triaged">Triaged</option>
+                <option value="resolved">Resolved</option>
+                <option value="duplicate">Duplicate</option>
+                <option value="n/a">N/A</option>
+              </select>
+            </div>
+            <button type="button" class="success" onclick="saveFinding()">Save Finding</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="scope" class="tab-panel" style="display:none">
+      <div class="card">
+        <div class="section-title">
+          <h2>Scope Manager</h2>
+          <button type="button" onclick="showAddProgram()">+ New Program</button>
+        </div>
+        <div id="scopeStats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px"></div>
+        <div id="programsList"></div>
+      </div>
+      
+      <div class="card">
+        <div class="section-title"><h2>Quick Scope Check</h2></div>
+        <div style="display:grid;gap:10px">
+          <input type="text" id="scopeCheckTarget" placeholder="Enter URL or domain to check..." />
+          <button type="button" onclick="checkScope()">Check Scope</button>
+        </div>
+        <div id="scopeCheckResult" style="margin-top:14px"></div>
+      </div>
+      
+      <!-- Add Program Modal -->
+      <div id="programModal" style="position:fixed;inset:0;background:rgba(3,6,10,.85);backdrop-filter:blur(3px);display:none;z-index:1300;padding:20px;overflow:auto">
+        <div style="max-width:800px;margin:40px auto;background:var(--bg3);border:1px solid var(--border);border-radius:16px;padding:24px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)">
+            <h2 style="margin:0">Add Program</h2>
+            <button type="button" class="secondary" onclick="closeProgramModal()">Close</button>
+          </div>
+          <div style="display:grid;gap:14px">
+            <div><label>Program Name</label><input type="text" id="programName" placeholder="e.g., Acme Corp Bug Bounty" /></div>
+            <div><label>Platform</label>
+              <select id="programPlatform">
+                <option>HackerOne</option>
+                <option>Bugcrowd</option>
+                <option>Synack</option>
+                <option>Intigriti</option>
+                <option>YesWeHack</option>
+                <option>Bug Bounty Switzerland</option>
+                <option>Custom</option>
+              </select>
+            </div>
+            <div><label>In-Scope Assets (one per line)</label><textarea id="programInScope" rows="5" placeholder="*.example.com\napi.example.com\nhttps://app.example.com"></textarea></div>
+            <div><label>Out-of-Scope Assets (one per line)</label><textarea id="programOutScope" rows="3" placeholder="*.dev.example.com\nlegacy.example.com"></textarea></div>
+            <div style="display:flex;align-items:center;gap:10px">
+              <input type="checkbox" id="programActive" checked />
+              <label for="programActive" style="margin:0;cursor:pointer">Active Program</label>
+            </div>
+            <button type="button" class="success" onclick="saveProgram()">Save Program</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="cvss" class="tab-panel" style="display:none">
+      <div class="card">
+        <div class="section-title"><h2>CVSS 3.1 Calculator</h2></div>
+        <p style="color:var(--muted);font-size:13px;margin:0 0 16px">Calculate base score and severity for vulnerability findings.</p>
+        
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:20px">
+          <div>
+            <label>Attack Vector (AV)</label>
+            <select id="cvssAV">
+              <option value="NETWORK">Network (N)</option>
+              <option value="ADJACENT">Adjacent (A)</option>
+              <option value="LOCAL">Local (L)</option>
+              <option value="PHYSICAL">Physical (P)</option>
+            </select>
+          </div>
+          <div>
+            <label>Attack Complexity (AC)</label>
+            <select id="cvssAC">
+              <option value="LOW">Low (L)</option>
+              <option value="HIGH">High (H)</option>
+            </select>
+          </div>
+          <div>
+            <label>Privileges Required (PR)</label>
+            <select id="cvssPR">
+              <option value="NONE">None (N)</option>
+              <option value="LOW">Low (L)</option>
+              <option value="HIGH">High (H)</option>
+            </select>
+          </div>
+          <div>
+            <label>User Interaction (UI)</label>
+            <select id="cvssUI">
+              <option value="NONE">None (N)</option>
+              <option value="REQUIRED">Required (R)</option>
+            </select>
+          </div>
+          <div>
+            <label>Scope (S)</label>
+            <select id="cvssS">
+              <option value="UNCHANGED">Unchanged (U)</option>
+              <option value="CHANGED">Changed (C)</option>
+            </select>
+          </div>
+          <div>
+            <label>Confidentiality (C)</label>
+            <select id="cvssC">
+              <option value="NONE">None (N)</option>
+              <option value="LOW">Low (L)</option>
+              <option value="HIGH">High (H)</option>
+            </select>
+          </div>
+          <div>
+            <label>Integrity (I)</label>
+            <select id="cvssI">
+              <option value="NONE">None (N)</option>
+              <option value="LOW">Low (L)</option>
+              <option value="HIGH">High (H)</option>
+            </select>
+          </div>
+          <div>
+            <label>Availability (A)</label>
+            <select id="cvssA">
+              <option value="NONE">None (N)</option>
+              <option value="LOW">Low (L)</option>
+              <option value="HIGH">High (H)</option>
+            </select>
+          </div>
+        </div>
+        
+        <button type="button" onclick="calculateCVSS()">Calculate Score</button>
+        
+        <div id="cvssResult" style="margin-top:20px;display:none">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:16px">
+            <div class="metric">
+              <strong id="cvssScore" style="color:var(--cyan)">0.0</strong>
+              <span>Base Score</span>
+            </div>
+            <div class="metric">
+              <strong id="cvssSeverity">NONE</strong>
+              <span>Severity</span>
+            </div>
+          </div>
+          <div>
+            <label>Vector String</label>
+            <input type="text" id="cvssVector" readonly style="font-family:monospace;font-size:12px" />
+          </div>
+          <div style="margin-top:12px;font-size:12px;color:var(--muted)">
+            <strong>Impact:</strong> <span id="cvssImpactScore">0.0</span> | 
+            <strong>Exploitability:</strong> <span id="cvssExploitScore">0.0</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section id="settings" class="tab-panel" style="display:none">
       <div class="card">
         <div class="section-title"><h2>Config</h2></div>
@@ -401,11 +665,12 @@ button.danger{background:var(--red);color:#fff}
     </section>
 
     <footer class="main-footer" aria-label="Documentation links">
-      <span>ZWANSKI.BB</span>
+      <span>ZWANSKI.BB <span id="footerVersion" style="color:var(--cyan)">v2.1.0</span></span>
       <a href="https://github.com/zwanski2019/zwanski-Bug-Bounty/tree/main/docs/wiki" target="_blank" rel="noopener">Wiki</a>
       <a href="https://github.com/zwanski2019/zwanski-Bug-Bounty/blob/main/docs/wiki/api.md" target="_blank" rel="noopener">API</a>
       <a href="https://github.com/zwanski2019/zwanski-Bug-Bounty/blob/main/docs/wiki/watchdog.md" target="_blank" rel="noopener">Watchdog</a>
       <a href="https://github.com/zwanski2019/zwanski-Bug-Bounty/blob/main/README.md" target="_blank" rel="noopener">README</a>
+      <a href="https://github.com/zwanski2019/zwanski-Bug-Bounty/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog</a>
     </footer>
   </main>
 </div>
@@ -423,6 +688,590 @@ let netPulse = 0;
 let watchdogPoll = null;
 let termSessionPoll = null;
 let setupItems = [];
+let updateCheckInterval = null;
+
+// ======================
+// VERSION & UPDATE MANAGEMENT
+// ======================
+
+async function checkForUpdates(force = false) {
+  try {
+    const res = await fetch(`/api/version${force ? '?force=true' : ''}`);
+    const data = await res.json();
+    
+    if (data.update_available) {
+      showUpdateBanner(data);
+    } else {
+      hideUpdateBanner();
+    }
+    
+    // Update footer version info
+    const versionEl = document.getElementById('footerVersion');
+    if (versionEl) {
+      versionEl.textContent = `v${data.current_version}`;
+      if (data.update_available) {
+        versionEl.innerHTML = `v${data.current_version} <span style="color:var(--green);margin-left:8px">→ v${data.latest_version} available</span>`;
+      }
+    }
+    
+    return data;
+  } catch (e) {
+    console.error('Update check failed:', e);
+  }
+}
+
+function showUpdateBanner(data) {
+  const banner = document.getElementById('updateBanner');
+  const message = document.getElementById('updateMessage');
+  
+  if (banner && message) {
+    message.textContent = `🎁 ZWANSKI.BB v${data.latest_version} is available! (current: v${data.current_version})`;
+    banner.classList.add('visible');
+  }
+}
+
+function hideUpdateBanner() {
+  const banner = document.getElementById('updateBanner');
+  if (banner) {
+    banner.classList.remove('visible');
+  }
+}
+
+function dismissUpdate() {
+  hideUpdateBanner();
+  localStorage.setItem('dismissed_update', Date.now());
+}
+
+async function viewChangelog() {
+  try {
+    const res = await fetch('/api/version?force=true');
+    const data = await res.json();
+    
+    const modal = document.getElementById('changelogModal');
+    const body = document.getElementById('changelogBody');
+    
+    if (data.release && data.release.body) {
+      // Parse markdown-like changelog
+      let changelog = data.release.body;
+      
+      // Convert markdown headers
+      changelog = changelog.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+      changelog = changelog.replace(/^## (.+)$/gm, '<h3>$1</h3>');
+      
+      // Convert bullet points
+      changelog = changelog.replace(/^[*-] (.+)$/gm, '<li>$1</li>');
+      changelog = changelog.replace(/(<li>.*<\/li>\n)+/g, '<ul>$&</ul>');
+      
+      // Convert bold
+      changelog = changelog.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      
+      // Convert code blocks
+      changelog = changelog.replace(/`(.+?)`/g, '<code style="background:var(--bg2);padding:2px 6px;border-radius:4px;font-size:12px">$1</code>');
+      
+      body.innerHTML = `
+        <div style="margin-bottom:20px">
+          <h3 style="margin:0 0 8px;color:var(--cyan)">Version ${data.release.version}</h3>
+          <p style="color:var(--muted);font-size:12px;margin:0">Released ${new Date(data.release.published_at).toLocaleDateString()}</p>
+        </div>
+        ${changelog}
+      `;
+    } else {
+      body.innerHTML = '<p>Changelog not available.</p>';
+    }
+    
+    modal.classList.add('visible');
+  } catch (e) {
+    console.error('Failed to load changelog:', e);
+  }
+}
+
+function closeChangelog() {
+  const modal = document.getElementById('changelogModal');
+  if (modal) {
+    modal.classList.remove('visible');
+  }
+}
+
+async function performUpdate() {
+  const banner = document.getElementById('updateBanner');
+  const message = document.getElementById('updateMessage');
+  
+  if (message) {
+    message.textContent = '⏳ Updating... This may take a moment.';
+  }
+  
+  try {
+    const res = await fetch('/api/update', { method: 'POST' });
+    const data = await res.json();
+    
+    if (data.success) {
+      if (message) {
+        message.textContent = '✅ Update successful! Restarting server...';
+      }
+      
+      setTimeout(() => {
+        location.reload();
+      }, 3000);
+    } else {
+      if (message) {
+        message.textContent = `❌ Update failed: ${data.message}`;
+      }
+      
+      setTimeout(() => {
+        checkForUpdates(true);
+      }, 5000);
+    }
+  } catch (e) {
+    if (message) {
+      message.textContent = '❌ Update error. Check console for details.';
+    }
+    console.error('Update failed:', e);
+  }
+}
+
+// Auto-check for updates every hour
+function startUpdateChecker() {
+  // Check on load
+  setTimeout(() => checkForUpdates(false), 2000);
+  
+  // Check every hour
+  updateCheckInterval = setInterval(() => {
+    checkForUpdates(false);
+  }, 3600000);
+}
+
+// ======================
+// FINDINGS TRACKER
+// ======================
+
+let currentFindingId = null;
+
+async function loadFindings() {
+  const severity = document.getElementById('findingFilterSeverity')?.value || '';
+  const status = document.getElementById('findingFilterStatus')?.value || '';
+  const target = document.getElementById('findingFilterTarget')?.value || '';
+  
+  const params = new URLSearchParams();
+  if (severity) params.append('severity', severity);
+  if (status) params.append('status', status);
+  if (target) params.append('target', target);
+  
+  try {
+    const res = await fetch(`/api/findings?${params}`);
+    const data = await res.json();
+    
+    renderFindings(data.findings || []);
+    
+    // Load stats
+    const statsRes = await fetch('/api/findings/stats');
+    const stats = await statsRes.json();
+    renderFindingsStats(stats);
+  } catch (e) {
+    console.error('Failed to load findings:', e);
+  }
+}
+
+function renderFindings(findings) {
+  const list = document.getElementById('findingsList');
+  if (!list) return;
+  
+  if (findings.length === 0) {
+    list.innerHTML = '<p style="color:var(--muted);text-align:center;padding:20px">No findings found</p>';
+    return;
+  }
+  
+  const html = findings.map(f => {
+    const severity = f.cvss?.severity || 'UNKNOWN';
+    const severityColor = {
+      'CRITICAL': 'var(--red)',
+      'HIGH': 'var(--orange)',
+      'MEDIUM': '#f59e0b',
+      'LOW': '#84cc16',
+      'NONE': 'var(--muted)'
+    }[severity] || 'var(--muted)';
+    
+    return `
+      <div class="card" style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:start;gap:12px">
+          <div style="flex:1">
+            <h3 style="margin:0 0 8px;font-size:14px">${escapeHtml(f.title || f.id)}</h3>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--muted)">
+              <span><strong>ID:</strong> ${escapeHtml(f.id)}</span>
+              <span><strong>Target:</strong> ${escapeHtml(f.target || 'N/A')}</span>
+              <span><strong>Platform:</strong> ${escapeHtml(f.platform || 'N/A')}</span>
+              <span><strong>Status:</strong> ${escapeHtml(f.status || 'new')}</span>
+              <span style="color:${severityColor}"><strong>Severity:</strong> ${severity}</span>
+              ${f.cvss ? `<span><strong>CVSS:</strong> ${f.cvss.base_score}</span>` : ''}
+            </div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button type="button" class="secondary" onclick="viewFinding('${f.id}')">View</button>
+            <button type="button" class="danger" onclick="deleteFinding('${f.id}')">Delete</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+  
+  list.innerHTML = html;
+}
+
+function renderFindingsStats(stats) {
+  const statsEl = document.getElementById('findingsStats');
+  if (!statsEl) return;
+  
+  const html = `
+    <div class="metric"><strong>${stats.total || 0}</strong><span>Total</span></div>
+    <div class="metric"><strong style="color:var(--red)">${stats.by_severity?.CRITICAL || 0}</strong><span>Critical</span></div>
+    <div class="metric"><strong style="color:var(--orange)">${stats.by_severity?.HIGH || 0}</strong><span>High</span></div>
+    <div class="metric"><strong>${stats.by_status?.submitted || 0}</strong><span>Submitted</span></div>
+    <div class="metric"><strong style="color:var(--green)">${stats.by_status?.resolved || 0}</strong><span>Resolved</span></div>
+  `;
+  statsEl.innerHTML = html;
+}
+
+function showAddFinding() {
+  currentFindingId = null;
+  document.getElementById('findingTitle').value = '';
+  document.getElementById('findingTarget').value = '';
+  document.getElementById('findingPlatform').value = 'HackerOne';
+  document.getElementById('findingSummary').value = '';
+  document.getElementById('findingImpact').value = '';
+  document.getElementById('findingSteps').value = '';
+  document.getElementById('findingPoC').value = '';
+  document.getElementById('findingRemediation').value = '';
+  document.getElementById('findingStatus').value = 'new';
+  document.getElementById('findingModal').style.display = 'block';
+}
+
+function closeFindingModal() {
+  document.getElementById('findingModal').style.display = 'none';
+}
+
+async function saveFinding() {
+  const title = document.getElementById('findingTitle').value.trim();
+  const target = document.getElementById('findingTarget').value.trim();
+  
+  if (!title || !target) {
+    alert('Title and target are required');
+    return;
+  }
+  
+  const steps = document.getElementById('findingSteps').value.trim().split('\n').filter(s => s.trim());
+  
+  const finding = {
+    title,
+    target,
+    platform: document.getElementById('findingPlatform').value,
+    summary: document.getElementById('findingSummary').value.trim(),
+    impact: document.getElementById('findingImpact').value.trim(),
+    steps,
+    proof_of_concept: document.getElementById('findingPoC').value.trim(),
+    remediation: document.getElementById('findingRemediation').value.trim(),
+    status: document.getElementById('findingStatus').value
+  };
+  
+  try {
+    const res = await fetch('/api/findings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(finding)
+    });
+    
+    const data = await res.json();
+    
+    if (data.success) {
+      closeFindingModal();
+      loadFindings();
+      addActivityLog(`[FINDING] Added ${data.id}`);
+    } else {
+      alert('Failed to save finding');
+    }
+  } catch (e) {
+    console.error('Failed to save finding:', e);
+    alert('Error saving finding');
+  }
+}
+
+async function viewFinding(id) {
+  try {
+    const res = await fetch(`/api/findings/${id}`);
+    const finding = await res.json();
+    
+    alert(`Finding: ${finding.title}\n\nTarget: ${finding.target}\nSeverity: ${finding.cvss?.severity || 'N/A'}\nStatus: ${finding.status}\n\n${finding.summary || 'No summary'}`);
+  } catch (e) {
+    console.error('Failed to load finding:', e);
+  }
+}
+
+async function deleteFinding(id) {
+  if (!confirm('Delete this finding?')) return;
+  
+  try {
+    const res = await fetch(`/api/findings/${id}`, { method: 'DELETE' });
+    const data = await res.json();
+    
+    if (data.success) {
+      loadFindings();
+      addActivityLog(`[FINDING] Deleted ${id}`);
+    }
+  } catch (e) {
+    console.error('Failed to delete finding:', e);
+  }
+}
+
+// ======================
+// SCOPE MANAGER
+// ======================
+
+let currentProgramId = null;
+
+async function loadPrograms() {
+  try {
+    const res = await fetch('/api/scope/programs');
+    const data = await res.json();
+    
+    renderPrograms(data.programs || []);
+    
+    const statsRes = await fetch('/api/scope/stats');
+    const stats = await statsRes.json();
+    renderScopeStats(stats);
+  } catch (e) {
+    console.error('Failed to load programs:', e);
+  }
+}
+
+function renderPrograms(programs) {
+  const list = document.getElementById('programsList');
+  if (!list) return;
+  
+  if (programs.length === 0) {
+    list.innerHTML = '<p style="color:var(--muted);text-align:center;padding:20px">No programs added yet</p>';
+    return;
+  }
+  
+  const html = programs.map(p => {
+    const activeBadge = p.active ? '<span class="badge installed">ACTIVE</span>' : '<span class="badge missing">INACTIVE</span>';
+    const inScopeCount = p.in_scope?.length || 0;
+    const outScopeCount = p.out_of_scope?.length || 0;
+    
+    return `
+      <div class="card" style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:start;gap:12px">
+          <div style="flex:1">
+            <h3 style="margin:0 0 8px;font-size:14px">${escapeHtml(p.name)} ${activeBadge}</h3>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--muted)">
+              <span><strong>Platform:</strong> ${escapeHtml(p.platform || 'Custom')}</span>
+              <span><strong>In-Scope:</strong> ${inScopeCount} items</span>
+              <span><strong>Out-of-Scope:</strong> ${outScopeCount} items</span>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button type="button" class="secondary" onclick="viewProgram('${p.id}')">View</button>
+            <button type="button" class="danger" onclick="deleteProgram('${p.id}')">Delete</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+  
+  list.innerHTML = html;
+}
+
+function renderScopeStats(stats) {
+  const statsEl = document.getElementById('scopeStats');
+  if (!statsEl) return;
+  
+  const html = `
+    <div class="metric"><strong>${stats.total_programs || 0}</strong><span>Programs</span></div>
+    <div class="metric"><strong style="color:var(--green)">${stats.active_programs || 0}</strong><span>Active</span></div>
+    <div class="metric"><strong>${stats.total_in_scope_items || 0}</strong><span>In-Scope</span></div>
+    <div class="metric"><strong style="color:var(--orange)">${stats.total_out_of_scope_items || 0}</strong><span>Out-of-Scope</span></div>
+  `;
+  statsEl.innerHTML = html;
+}
+
+function showAddProgram() {
+  currentProgramId = null;
+  document.getElementById('programName').value = '';
+  document.getElementById('programPlatform').value = 'HackerOne';
+  document.getElementById('programInScope').value = '';
+  document.getElementById('programOutScope').value = '';
+  document.getElementById('programActive').checked = true;
+  document.getElementById('programModal').style.display = 'block';
+}
+
+function closeProgramModal() {
+  document.getElementById('programModal').style.display = 'none';
+}
+
+async function saveProgram() {
+  const name = document.getElementById('programName').value.trim();
+  
+  if (!name) {
+    alert('Program name is required');
+    return;
+  }
+  
+  const inScope = document.getElementById('programInScope').value.trim().split('\n').filter(s => s.trim());
+  const outScope = document.getElementById('programOutScope').value.trim().split('\n').filter(s => s.trim());
+  
+  const program = {
+    name,
+    platform: document.getElementById('programPlatform').value,
+    in_scope: inScope,
+    out_of_scope: outScope,
+    active: document.getElementById('programActive').checked
+  };
+  
+  try {
+    const res = await fetch('/api/scope/programs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(program)
+    });
+    
+    const data = await res.json();
+    
+    if (data.success) {
+      closeProgramModal();
+      loadPrograms();
+      addActivityLog(`[SCOPE] Added program ${name}`);
+    } else {
+      alert('Failed to save program');
+    }
+  } catch (e) {
+    console.error('Failed to save program:', e);
+    alert('Error saving program');
+  }
+}
+
+async function viewProgram(id) {
+  try {
+    const res = await fetch(`/api/scope/programs/${id}`);
+    const program = await res.json();
+    
+    const inScope = program.in_scope?.join('\n') || 'None';
+    const outScope = program.out_of_scope?.join('\n') || 'None';
+    
+    alert(`Program: ${program.name}\n\nPlatform: ${program.platform}\nActive: ${program.active}\n\nIn-Scope:\n${inScope}\n\nOut-of-Scope:\n${outScope}`);
+  } catch (e) {
+    console.error('Failed to load program:', e);
+  }
+}
+
+async function deleteProgram(id) {
+  if (!confirm('Delete this program?')) return;
+  
+  try {
+    const res = await fetch(`/api/scope/programs/${id}`, { method: 'DELETE' });
+    const data = await res.json();
+    
+    if (data.success) {
+      loadPrograms();
+      addActivityLog(`[SCOPE] Deleted program`);
+    }
+  } catch (e) {
+    console.error('Failed to delete program:', e);
+  }
+}
+
+async function checkScope() {
+  const target = document.getElementById('scopeCheckTarget').value.trim();
+  const resultEl = document.getElementById('scopeCheckResult');
+  
+  if (!target) {
+    resultEl.innerHTML = '<p style="color:var(--muted)">Enter a target to check</p>';
+    return;
+  }
+  
+  try {
+    const res = await fetch('/api/scope/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target })
+    });
+    
+    const data = await res.json();
+    
+    const statusColor = data.in_scope ? 'var(--green)' : data.out_of_scope ? 'var(--red)' : 'var(--muted)';
+    const statusText = data.in_scope ? '✓ IN SCOPE' : data.out_of_scope ? '✗ OUT OF SCOPE' : '? NOT FOUND';
+    
+    let html = `<div style="padding:14px;background:var(--bg2);border:1px solid var(--border);border-radius:12px">`;
+    html += `<div style="color:${statusColor};font-weight:700;margin-bottom:10px">${statusText}</div>`;
+    html += `<div style="font-size:12px;color:var(--muted)">Target: ${escapeHtml(target)}</div>`;
+    
+    if (data.matching_programs && data.matching_programs.length > 0) {
+      html += `<div style="margin-top:12px;font-size:12px">`;
+      html += `<strong>Matching Programs:</strong>`;
+      data.matching_programs.forEach(p => {
+        html += `<div style="margin-top:6px;padding:8px;background:var(--bg);border-radius:8px">`;
+        html += `${escapeHtml(p.name)} (${escapeHtml(p.platform)}) - ${p.scope_type}`;
+        html += `</div>`;
+      });
+      html += `</div>`;
+    }
+    
+    html += `</div>`;
+    resultEl.innerHTML = html;
+  } catch (e) {
+    console.error('Failed to check scope:', e);
+    resultEl.innerHTML = '<p style="color:var(--red)">Error checking scope</p>';
+  }
+}
+
+// ======================
+// CVSS CALCULATOR
+// ======================
+
+async function calculateCVSS() {
+  const metrics = {
+    attack_vector: document.getElementById('cvssAV').value,
+    attack_complexity: document.getElementById('cvssAC').value,
+    privileges_required: document.getElementById('cvssPR').value,
+    user_interaction: document.getElementById('cvssUI').value,
+    scope: document.getElementById('cvssS').value,
+    confidentiality: document.getElementById('cvssC').value,
+    integrity: document.getElementById('cvssI').value,
+    availability: document.getElementById('cvssA').value
+  };
+  
+  try {
+    const res = await fetch('/api/cvss/calculate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ metrics })
+    });
+    
+    const data = await res.json();
+    
+    const resultDiv = document.getElementById('cvssResult');
+    resultDiv.style.display = 'block';
+    
+    const severityColor = {
+      'CRITICAL': 'var(--red)',
+      'HIGH': 'var(--orange)',
+      'MEDIUM': '#f59e0b',
+      'LOW': '#84cc16',
+      'NONE': 'var(--muted)'
+    }[data.severity] || 'var(--muted)';
+    
+    document.getElementById('cvssScore').textContent = data.base_score;
+    document.getElementById('cvssScore').style.color = severityColor;
+    document.getElementById('cvssSeverity').textContent = data.severity;
+    document.getElementById('cvssSeverity').style.color = severityColor;
+    document.getElementById('cvssVector').value = data.vector_string;
+    document.getElementById('cvssImpactScore').textContent = data.sub_scores?.impact || '0.0';
+    document.getElementById('cvssExploitScore').textContent = data.sub_scores?.exploitability || '0.0';
+    
+    addActivityLog(`[CVSS] Calculated score: ${data.base_score} (${data.severity})`);
+  } catch (e) {
+    console.error('Failed to calculate CVSS:', e);
+    alert('Error calculating CVSS score');
+  }
+}
+
+
 
 function showTab(name) {
   tabs.forEach(el => el.classList.toggle('active', el.dataset.tab === name));
@@ -432,6 +1281,12 @@ function showTab(name) {
     fetchTermSessions();
     if (termSessionPoll) clearInterval(termSessionPoll);
     termSessionPoll = setInterval(fetchTermSessions, 5000);
+  }
+  if (name === 'findings') {
+    loadFindings();
+  }
+  if (name === 'scope') {
+    loadPrograms();
   }
   if (name === 'watchdog') {
     refreshWatchdog();
@@ -1151,6 +2006,7 @@ setInterval(pollHealthFallback, 4000);
 pollHealthFallback();
 
 addActivityLog('[SYSTEM] Command center online');
+startUpdateChecker();
 window.addEventListener('resize', () => drawWarmap(warmapData));
 setTimeout(() => drawWarmap(warmapData), 300);
 </script>

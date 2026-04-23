@@ -35,6 +35,9 @@ WATCHDOG_ROOT = ROOT / "zwanski-watchdog"
 
 from zwanski_kb import TargetKnowledgeBase
 from shadow_client import shadow_request
+from version_manager import version_manager
+from reporting_enhanced import cvss_calculator, finding_tracker, report_generator
+from scope_manager import scope_manager
 
 WARMAP_STATE = {"hosts": [], "ports": [], "edges": [], "updated_at": None}
 _NET_LAST = {"sent": None, "recv": None}
@@ -1799,6 +1802,210 @@ def open_browser(port):
         webbrowser.open(url)
     except Exception:
         pass
+
+
+# ======================
+# VERSION & UPDATE MANAGEMENT
+# ======================
+
+@app.route("/api/version", methods=["GET"])
+def api_version():
+    """Get current version and check for updates."""
+    force = request.args.get("force", "false").lower() == "true"
+    status = version_manager.check_for_updates(force=force)
+    return jsonify(status)
+
+
+@app.route("/api/update", methods=["POST"])
+def api_update():
+    """Perform git pull update."""
+    result = version_manager.perform_update()
+    return jsonify(result)
+
+
+@app.route("/api/git-status", methods=["GET"])
+def api_git_status():
+    """Get git repository status."""
+    status = version_manager.get_git_status()
+    return jsonify(status)
+
+
+# ======================
+# CVSS CALCULATOR
+# ======================
+
+@app.route("/api/cvss/calculate", methods=["POST"])
+def api_cvss_calculate():
+    """Calculate CVSS score from metrics."""
+    data = request.get_json()
+    metrics = data.get("metrics", {})
+    result = cvss_calculator.calculate(metrics)
+    return jsonify(result)
+
+
+# ======================
+# FINDING TRACKER
+# ======================
+
+@app.route("/api/findings", methods=["GET"])
+def api_findings_list():
+    """List all findings with optional filters."""
+    filters = {
+        "status": request.args.get("status"),
+        "severity": request.args.get("severity"),
+        "target": request.args.get("target"),
+        "platform": request.args.get("platform")
+    }
+    # Remove None values
+    filters = {k: v for k, v in filters.items() if v is not None}
+    
+    findings = finding_tracker.list_findings(filters if filters else None)
+    return jsonify({"findings": findings})
+
+
+@app.route("/api/findings", methods=["POST"])
+def api_findings_add():
+    """Add a new finding."""
+    data = request.get_json()
+    finding_id = finding_tracker.add_finding(data)
+    return jsonify({"id": finding_id, "success": True})
+
+
+@app.route("/api/findings/<finding_id>", methods=["GET"])
+def api_findings_get(finding_id):
+    """Get a specific finding."""
+    finding = finding_tracker.get_finding(finding_id)
+    if finding:
+        return jsonify(finding)
+    return jsonify({"error": "Finding not found"}), 404
+
+
+@app.route("/api/findings/<finding_id>", methods=["PUT"])
+def api_findings_update(finding_id):
+    """Update a finding."""
+    data = request.get_json()
+    success = finding_tracker.update_finding(finding_id, data)
+    return jsonify({"success": success})
+
+
+@app.route("/api/findings/<finding_id>", methods=["DELETE"])
+def api_findings_delete(finding_id):
+    """Delete a finding."""
+    success = finding_tracker.delete_finding(finding_id)
+    return jsonify({"success": success})
+
+
+@app.route("/api/findings/stats", methods=["GET"])
+def api_findings_stats():
+    """Get finding statistics."""
+    stats = finding_tracker.get_stats()
+    return jsonify(stats)
+
+
+# ======================
+# REPORT GENERATION
+# ======================
+
+@app.route("/api/report/generate", methods=["POST"])
+def api_report_generate():
+    """Generate a platform-specific vulnerability report."""
+    data = request.get_json()
+    finding = data.get("finding", {})
+    platform = data.get("platform", "HackerOne")
+    
+    report = report_generator.generate_report(finding, platform)
+    return jsonify({"report": report, "platform": platform})
+
+
+@app.route("/api/report/platforms", methods=["GET"])
+def api_report_platforms():
+    """Get list of supported platforms."""
+    platforms = list(report_generator.PLATFORM_TEMPLATES.keys())
+    return jsonify({"platforms": platforms})
+
+
+# ======================
+# SCOPE MANAGEMENT
+# ======================
+
+@app.route("/api/scope/programs", methods=["GET"])
+def api_scope_programs_list():
+    """List all bug bounty programs."""
+    filters = {
+        "platform": request.args.get("platform"),
+        "active": request.args.get("active"),
+        "search": request.args.get("search")
+    }
+    # Remove None values and convert active to bool
+    filters = {k: v for k, v in filters.items() if v is not None}
+    if "active" in filters:
+        filters["active"] = filters["active"].lower() == "true"
+    
+    programs = scope_manager.list_programs(filters if filters else None)
+    return jsonify({"programs": programs})
+
+
+@app.route("/api/scope/programs", methods=["POST"])
+def api_scope_programs_add():
+    """Add a new bug bounty program."""
+    data = request.get_json()
+    program_id = scope_manager.add_program(data)
+    return jsonify({"id": program_id, "success": True})
+
+
+@app.route("/api/scope/programs/<program_id>", methods=["GET"])
+def api_scope_programs_get(program_id):
+    """Get a specific program."""
+    program = scope_manager.get_program(program_id)
+    if program:
+        return jsonify(program)
+    return jsonify({"error": "Program not found"}), 404
+
+
+@app.route("/api/scope/programs/<program_id>", methods=["PUT"])
+def api_scope_programs_update(program_id):
+    """Update a program."""
+    data = request.get_json()
+    success = scope_manager.update_program(program_id, data)
+    return jsonify({"success": success})
+
+
+@app.route("/api/scope/programs/<program_id>", methods=["DELETE"])
+def api_scope_programs_delete(program_id):
+    """Delete a program."""
+    success = scope_manager.delete_program(program_id)
+    return jsonify({"success": success})
+
+
+@app.route("/api/scope/check", methods=["POST"])
+def api_scope_check():
+    """Check if a target is in scope."""
+    data = request.get_json()
+    target = data.get("target")
+    program_id = data.get("program_id")
+    
+    if not target:
+        return jsonify({"error": "Target required"}), 400
+    
+    result = scope_manager.check_in_scope(target, program_id)
+    return jsonify(result)
+
+
+@app.route("/api/scope/parse", methods=["POST"])
+def api_scope_parse():
+    """Parse scope from text."""
+    data = request.get_json()
+    text = data.get("text", "")
+    
+    parsed = scope_manager.parse_scope_from_text(text)
+    return jsonify(parsed)
+
+
+@app.route("/api/scope/stats", methods=["GET"])
+def api_scope_stats():
+    """Get scope statistics."""
+    stats = scope_manager.get_stats()
+    return jsonify(stats)
 
 
 if __name__ == "__main__":
