@@ -195,6 +195,7 @@ button.danger{background:var(--red);color:#fff}
     <div class="nav-item" data-tab="terminal">Terminal</div>
     <div class="nav-item" data-tab="ai">Intel AI</div>
     <div class="nav-item" data-tab="reports">Reports</div>
+    <div class="nav-item" data-tab="shannon">Shannon AI</div>
     <div class="nav-item" data-tab="settings">Config</div>
   </aside>
   <main class="main">
@@ -664,6 +665,91 @@ button.danger{background:var(--red);color:#fff}
       </div>
     </section>
 
+    <!-- ═══════════════════════════════════════════
+         SHANNON AI PENTEST PANEL (v2.3.0)
+    ═══════════════════════════════════════════ -->
+    <section id="shannon" class="tab-panel" style="display:none">
+
+      <!-- Status bar -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:18px">
+        <div class="card" style="padding:14px 18px">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Temporal</div>
+          <div id="shannonTemporalStatus" style="font-size:15px;font-weight:600;color:var(--muted)">Checking…</div>
+        </div>
+        <div class="card" style="padding:14px 18px">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Active Scans</div>
+          <div id="shannonActiveScans" style="font-size:22px;font-weight:700;color:var(--cyan)">0</div>
+        </div>
+        <div class="card" style="padding:14px 18px">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Completed</div>
+          <div id="shannonCompletedScans" style="font-size:22px;font-weight:700;color:var(--green)">0</div>
+        </div>
+        <div class="card" style="padding:14px 18px">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Total Cost</div>
+          <div id="shannonTotalCost" style="font-size:22px;font-weight:700;color:var(--purple)">$0.00</div>
+        </div>
+        <div class="card" style="padding:14px 18px;display:flex;flex-direction:column;justify-content:space-between">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Infrastructure</div>
+          <button type="button" class="secondary" style="font-size:12px;padding:6px 12px" onclick="shannonStartInfra()">Start Temporal</button>
+        </div>
+      </div>
+
+      <!-- New scan form -->
+      <div class="card" style="margin-bottom:18px">
+        <div class="section-title"><h2>New Scan</h2></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+          <div>
+            <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:5px">Target URL *</label>
+            <input id="shannonTarget" placeholder="https://target.com" style="width:100%;box-sizing:border-box" />
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:5px">Workspace name</label>
+            <input id="shannonWorkspace" placeholder="auto-generated if blank" style="width:100%;box-sizing:border-box" />
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr auto;gap:14px;align-items:flex-end">
+          <div>
+            <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:5px">Engagement config</label>
+            <select id="shannonConfig" style="width:100%;background:var(--surface);color:var(--text);border:1px solid var(--border);padding:8px 10px;border-radius:8px;font-size:13px">
+              <option value="">— no config (default) —</option>
+            </select>
+          </div>
+          <button type="button" onclick="shannonStartScan()" style="white-space:nowrap;height:36px">Launch Scan</button>
+        </div>
+        <div id="shannonLaunchMsg" style="margin-top:10px;font-size:12px;display:none"></div>
+      </div>
+
+      <!-- Active / recent scans -->
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+          <div class="section-title" style="margin:0"><h2>Scans</h2></div>
+          <button type="button" class="secondary" style="font-size:12px;padding:5px 12px" onclick="shannonRefreshScans()">↻ Refresh</button>
+        </div>
+        <div id="shannonScanList" style="display:flex;flex-direction:column;gap:14px">
+          <p style="color:var(--muted);font-size:13px">No scans yet. Launch one above.</p>
+        </div>
+      </div>
+
+      <!-- Log viewer (appears when a scan is selected) -->
+      <div id="shannonLogCard" class="card" style="margin-top:18px;display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div class="section-title" style="margin:0"><h2>Live Log — <span id="shannonLogWorkspace" style="color:var(--cyan);font-weight:400;font-size:14px"></span></h2></div>
+          <button type="button" class="secondary" style="font-size:12px;padding:5px 12px" onclick="shannonCloseLog()">✕ Close</button>
+        </div>
+        <pre id="shannonLogBody" style="background:rgba(0,0,0,.4);border-radius:8px;padding:14px;font-size:11px;line-height:1.6;max-height:420px;overflow-y:auto;color:var(--text);white-space:pre-wrap;word-break:break-all"></pre>
+      </div>
+
+      <!-- Report viewer -->
+      <div id="shannonReportCard" class="card" style="margin-top:18px;display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div class="section-title" style="margin:0"><h2>Report — <span id="shannonReportWorkspace" style="color:var(--cyan);font-weight:400;font-size:14px"></span></h2></div>
+          <button type="button" class="secondary" style="font-size:12px;padding:5px 12px" onclick="shannonCloseReport()">✕ Close</button>
+        </div>
+        <div id="shannonReportBody" style="background:rgba(0,0,0,.4);border-radius:8px;padding:18px;font-size:12px;line-height:1.8;max-height:560px;overflow-y:auto;color:var(--text);white-space:pre-wrap;word-break:break-word"></div>
+      </div>
+
+    </section>
+
     <footer class="main-footer" aria-label="Documentation links">
       <span>ZWANSKI.BB <span id="footerVersion" style="color:var(--cyan)">v2.1.0</span></span>
       <a href="https://github.com/zwanski2019/zwanski-Bug-Bounty/tree/main/docs/wiki" target="_blank" rel="noopener">Wiki</a>
@@ -687,6 +773,8 @@ let fitAddon = null;
 let netPulse = 0;
 let watchdogPoll = null;
 let termSessionPoll = null;
+let shannonPoll = null;
+let shannonActiveScanId = null;
 let setupItems = [];
 let updateCheckInterval = null;
 
@@ -1295,6 +1383,13 @@ function showTab(name) {
   } else if (watchdogPoll) {
     clearInterval(watchdogPoll);
     watchdogPoll = null;
+  }
+  if (name === 'shannon') {
+    shannonInitPanel();
+    if (!shannonPoll) shannonPoll = setInterval(shannonRefreshScans, 15000);
+  } else if (shannonPoll) {
+    clearInterval(shannonPoll);
+    shannonPoll = null;
   }
   if (name !== 'terminal' && termSessionPoll) {
     clearInterval(termSessionPoll);
@@ -2009,6 +2104,259 @@ addActivityLog('[SYSTEM] Command center online');
 startUpdateChecker();
 window.addEventListener('resize', () => drawWarmap(warmapData));
 setTimeout(() => drawWarmap(warmapData), 300);
+
+// ======================
+// SHANNON AI INTEGRATION
+// ======================
+
+const SHANNON_AGENTS = [
+  'pre-recon','recon',
+  'injection-vuln','xss-vuln','auth-vuln','ssrf-vuln','authz-vuln',
+  'oauth-sso-vuln','env-bleed-vuln','second-order-vuln',
+  'injection-exploit','xss-exploit','auth-exploit','ssrf-exploit','authz-exploit',
+  'oauth-sso-exploit','env-bleed-exploit','second-order-exploit',
+  'report'
+];
+
+const SHANNON_AGENT_LABELS = {
+  'pre-recon': 'Pre-Recon', 'recon': 'Recon',
+  'injection-vuln': 'Inject', 'xss-vuln': 'XSS', 'auth-vuln': 'Auth',
+  'ssrf-vuln': 'SSRF', 'authz-vuln': 'Authz',
+  'oauth-sso-vuln': 'OAuth', 'env-bleed-vuln': 'EnvBleed', 'second-order-vuln': '2ndOrder',
+  'injection-exploit': 'InjectXP', 'xss-exploit': 'XSSXP', 'auth-exploit': 'AuthXP',
+  'ssrf-exploit': 'SSRFXP', 'authz-exploit': 'AuthzXP',
+  'oauth-sso-exploit': 'OAuthXP', 'env-bleed-exploit': 'BleedXP', 'second-order-exploit': '2ndXP',
+  'report': 'Report'
+};
+
+function shannonInitPanel() {
+  shannonLoadStatus();
+  shannonLoadConfigs();
+  shannonRefreshScans();
+}
+
+async function shannonLoadStatus() {
+  try {
+    const res = await fetch('/api/shannon/status');
+    if (!res.ok) return;
+    const d = await res.json();
+    const tEl = document.getElementById('shannonTemporalStatus');
+    const aEl = document.getElementById('shannonActiveScans');
+    const cEl = document.getElementById('shannonCompletedScans');
+    const costEl = document.getElementById('shannonTotalCost');
+    if (tEl) {
+      tEl.textContent = (d.temporal_ok || d.temporal_running) ? 'Online' : 'Offline';
+      tEl.style.color = (d.temporal_ok || d.temporal_running) ? 'var(--green)' : 'var(--red)';
+    }
+    if (aEl) aEl.textContent = d.active_scans ?? 0;
+    if (cEl) cEl.textContent = d.completed_scans ?? 0;
+    if (costEl) costEl.textContent = '$' + (d.total_cost_usd || 0).toFixed(2);
+  } catch (_) {}
+}
+
+async function shannonLoadConfigs() {
+  try {
+    const res = await fetch('/api/shannon/configs');
+    if (!res.ok) return;
+    const d = await res.json();
+    const sel = document.getElementById('shannonConfig');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— no config (default) —</option>';
+    (d.configs || []).forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.path;
+      opt.textContent = c.name;
+      sel.appendChild(opt);
+    });
+  } catch (_) {}
+}
+
+async function shannonRefreshScans() {
+  try {
+    const res = await fetch('/api/shannon/scans');
+    if (!res.ok) return;
+    const d = await res.json();
+    renderShannonScans(d.scans || []);
+    const aEl = document.getElementById('shannonActiveScans');
+    const cEl = document.getElementById('shannonCompletedScans');
+    const costEl = document.getElementById('shannonTotalCost');
+    if (aEl) aEl.textContent = (d.scans || []).filter(s => s.status === 'running').length;
+    if (cEl) cEl.textContent = (d.scans || []).filter(s => s.status === 'completed').length;
+    const total = (d.scans || []).reduce((sum, s) => sum + (s.cost_usd || 0), 0);
+    if (costEl) costEl.textContent = '$' + total.toFixed(2);
+  } catch (_) {}
+}
+
+function renderShannonScans(scans) {
+  const list = document.getElementById('shannonScanList');
+  if (!list) return;
+  if (!scans.length) {
+    list.innerHTML = '<p style="color:var(--muted);text-align:center;padding:24px">No scans yet — launch one above.</p>';
+    return;
+  }
+  list.innerHTML = scans.slice().reverse().map(s => {
+    const completed = s.completed_agents || [];
+    const total = SHANNON_AGENTS.length;
+    const pct = Math.round((completed.length / total) * 100);
+    const statusColor = { running: 'var(--cyan)', completed: 'var(--green)', failed: 'var(--red)', stopped: 'var(--orange)' }[s.status] || 'var(--muted)';
+    const pipelineDots = SHANNON_AGENTS.map(a => {
+      const done = completed.includes(a);
+      const isRunning = s.status === 'running' && s.current_phase === a;
+      const color = isRunning ? 'var(--orange)' : done ? 'var(--green)' : 'var(--border)';
+      return `<span title="${a}" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};margin:1px"></span>`;
+    }).join('');
+    return `
+      <div class="card" style="border-left:3px solid ${statusColor}">
+        <div style="display:flex;justify-content:space-between;align-items:start;gap:12px">
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+              <strong style="font-size:13px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(s.target)}</strong>
+              <span style="font-size:11px;color:${statusColor};font-weight:600;text-transform:uppercase">${s.status}</span>
+              ${s.workflow_id ? `<span style="font-size:10px;color:var(--muted);font-family:monospace">${escapeHtml(s.workflow_id.slice(0,16))}…</span>` : ''}
+            </div>
+            <div style="display:flex;gap:14px;font-size:11px;color:var(--muted);margin-bottom:8px;flex-wrap:wrap">
+              <span>WS: <strong style="color:var(--text)">${escapeHtml(s.workspace || '—')}</strong></span>
+              <span>Agents: <strong style="color:var(--cyan)">${completed.length}/${total}</strong></span>
+              <span>Cost: <strong style="color:var(--purple)">$${(s.cost_usd||0).toFixed(2)}</strong></span>
+              ${s.current_phase ? `<span>Phase: <strong style="color:var(--orange)">${escapeHtml(s.current_phase)}</strong></span>` : ''}
+            </div>
+            <div style="margin-bottom:8px">
+              <div style="height:4px;background:var(--border);border-radius:4px;overflow:hidden;margin-bottom:4px">
+                <div style="height:100%;width:${pct}%;background:${pct===100?'var(--green)':'var(--cyan)'};border-radius:4px;transition:width .4s"></div>
+              </div>
+              <div style="line-height:1.4">${pipelineDots}</div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
+            <button type="button" class="secondary" style="font-size:11px;padding:4px 10px" onclick="shannonViewLogs('${s.scan_id}','${escapeHtml(s.workspace||'')}')">Logs</button>
+            ${s.status === 'completed' ? `<button type="button" class="secondary" style="font-size:11px;padding:4px 10px" onclick="shannonViewReport('${s.scan_id}','${escapeHtml(s.workspace||'')}')">Report</button>` : ''}
+            ${s.status === 'running' ? `<button type="button" style="font-size:11px;padding:4px 10px;background:var(--orange);color:#000;border:none;border-radius:8px;cursor:pointer" onclick="shannonStopScan('${s.scan_id}')">Stop</button>` : ''}
+            <button type="button" class="danger" style="font-size:11px;padding:4px 10px" onclick="shannonDeleteScan('${s.scan_id}')">✕</button>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+async function shannonStartScan() {
+  const target = document.getElementById('shannonTarget')?.value.trim();
+  const workspace = document.getElementById('shannonWorkspace')?.value.trim();
+  const config = document.getElementById('shannonConfig')?.value;
+  const msg = document.getElementById('shannonLaunchMsg');
+  if (!target) { if (msg) { msg.style.display='block'; msg.style.color='var(--red)'; msg.textContent='Target URL is required.'; } return; }
+  if (msg) { msg.style.display='block'; msg.style.color='var(--cyan)'; msg.textContent='Launching scan…'; }
+  try {
+    const body = { target };
+    if (workspace) body.workspace = workspace;
+    if (config) body.config_path = config;
+    const res = await fetch('/api/shannon/scans', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const d = await res.json();
+    const scanId = d.scan_id || d.scan?.scan_id;
+    if (res.ok && scanId) {
+      if (msg) { msg.style.color='var(--green)'; msg.textContent=`Scan started: ${scanId}`; }
+      document.getElementById('shannonTarget').value = '';
+      document.getElementById('shannonWorkspace').value = '';
+      setTimeout(shannonRefreshScans, 1500);
+    } else {
+      if (msg) { msg.style.color='var(--red)'; msg.textContent=d.error || 'Launch failed'; }
+    }
+  } catch (e) {
+    if (msg) { msg.style.color='var(--red)'; msg.textContent='Error: ' + e.message; }
+  }
+}
+
+async function shannonStartInfra() {
+  try {
+    const res = await fetch('/api/shannon/infra/start', { method: 'POST' });
+    const d = await res.json();
+    alert(d.message || (res.ok ? 'Temporal started' : 'Failed'));
+    setTimeout(shannonLoadStatus, 3000);
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function shannonStopScan(scanId) {
+  if (!confirm('Stop this scan?')) return;
+  try {
+    await fetch(`/api/shannon/scans/${scanId}/stop`, { method: 'POST' });
+    setTimeout(shannonRefreshScans, 800);
+  } catch (_) {}
+}
+
+async function shannonDeleteScan(scanId) {
+  if (!confirm('Delete this scan?')) return;
+  try {
+    await fetch(`/api/shannon/scans/${scanId}`, { method: 'DELETE' });
+    setTimeout(shannonRefreshScans, 500);
+  } catch (_) {}
+}
+
+async function shannonViewLogs(scanId, workspace) {
+  const card = document.getElementById('shannonLogCard');
+  const body = document.getElementById('shannonLogBody');
+  const label = document.getElementById('shannonLogWorkspace');
+  if (!card || !body) return;
+  if (label) label.textContent = workspace || scanId;
+  body.textContent = 'Loading…';
+  card.style.display = 'block';
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  shannonActiveScanId = scanId;
+  try {
+    const res = await fetch(`/api/shannon/scans/${scanId}/logs`);
+    const d = await res.json();
+    body.textContent = d.logs || '(no logs yet)';
+    body.scrollTop = body.scrollHeight;
+  } catch (e) { body.textContent = 'Error: ' + e.message; }
+}
+
+async function shannonViewReport(scanId, workspace) {
+  const card = document.getElementById('shannonReportCard');
+  const body = document.getElementById('shannonReportBody');
+  const label = document.getElementById('shannonReportWorkspace');
+  if (!card || !body) return;
+  if (label) label.textContent = workspace || scanId;
+  body.textContent = 'Loading…';
+  card.style.display = 'block';
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  try {
+    const res = await fetch(`/api/shannon/scans/${scanId}/report`);
+    const d = await res.json();
+    if (d.report) {
+      body.innerHTML = '<pre style="white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.7">' + escapeHtml(d.report) + '</pre>';
+    } else {
+      body.textContent = d.error || '(report not yet available)';
+    }
+  } catch (e) { body.textContent = 'Error: ' + e.message; }
+}
+
+function shannonCloseLog() {
+  const card = document.getElementById('shannonLogCard');
+  if (card) card.style.display = 'none';
+  shannonActiveScanId = null;
+}
+
+function shannonCloseReport() {
+  const card = document.getElementById('shannonReportCard');
+  if (card) card.style.display = 'none';
+}
+
+socket.on('shannon_scan_update', d => {
+  shannonRefreshScans();
+  shannonLoadStatus();
+});
+
+socket.on('shannon_log', d => {
+  if (shannonActiveScanId && d.scan_id === shannonActiveScanId) {
+    const body = document.getElementById('shannonLogBody');
+    if (body) {
+      body.textContent += d.line + '\n';
+      body.scrollTop = body.scrollHeight;
+    }
+  }
+});
 </script>
 </body>
 </html>

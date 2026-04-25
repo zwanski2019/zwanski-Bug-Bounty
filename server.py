@@ -41,6 +41,7 @@ from scope_manager import scope_manager
 from terminal_manager import terminal_manager
 from port_scanner import port_scanner
 from openclaw_agent import openclaw_agent
+from shannon_manager import shannon_manager
 
 WARMAP_STATE = {"hosts": [], "ports": [], "edges": [], "updated_at": None}
 _NET_LAST = {"sent": None, "recv": None}
@@ -132,6 +133,10 @@ def emit_to_all(event: str, data) -> None:
     """Broadcast to every connected client from any thread (python-socketio 5+ has no broadcast= kwarg)."""
     with app.app_context():
         socketio.emit(event, data, namespace="/")
+
+
+shannon_manager.set_emit(emit_to_all)
+shannon_manager.start_poller()
 
 
 def load_config():
@@ -2241,6 +2246,112 @@ def api_agents_stats():
     """Get agent statistics."""
     stats = openclaw_agent.get_stats()
     return jsonify(stats)
+
+
+# ======================
+# SHANNON AI PENTEST INTEGRATION (v2.3.0)
+# ======================
+
+@app.route("/api/shannon/status", methods=["GET"])
+def api_shannon_status():
+    """Shannon infra health + stats."""
+    infra = shannon_manager.get_infra_status()
+    stats = shannon_manager.get_stats()
+    return jsonify({**infra, **stats})
+
+
+@app.route("/api/shannon/infra/start", methods=["POST"])
+def api_shannon_infra_start():
+    """Start Shannon's Temporal docker-compose."""
+    result = shannon_manager.start_infra()
+    return jsonify(result)
+
+
+@app.route("/api/shannon/configs", methods=["GET"])
+def api_shannon_configs():
+    """List available engagement YAML configs."""
+    return jsonify({"configs": shannon_manager.list_configs()})
+
+
+@app.route("/api/shannon/scans", methods=["GET"])
+def api_shannon_scans():
+    """List all Shannon scans."""
+    return jsonify({"scans": shannon_manager.list_scans()})
+
+
+@app.route("/api/shannon/scans", methods=["POST"])
+def api_shannon_scan_start():
+    """Start a new Shannon scan."""
+    data = request.get_json() or {}
+    target = data.get("target", "").strip()
+    workspace = data.get("workspace", "").strip() or None
+    config_path = data.get("config_path") or None
+
+    if not target:
+        return jsonify({"success": False, "error": "Target URL required"}), 400
+
+    result = shannon_manager.start_scan(target, workspace, config_path)
+    return jsonify(result)
+
+
+@app.route("/api/shannon/scans/<scan_id>", methods=["GET"])
+def api_shannon_scan_get(scan_id):
+    """Get scan details with latest Temporal state."""
+    scan = shannon_manager.get_scan(scan_id)
+    if not scan:
+        return jsonify({"error": "Scan not found"}), 404
+    return jsonify(scan)
+
+
+@app.route("/api/shannon/scans/<scan_id>/stop", methods=["POST"])
+def api_shannon_scan_stop(scan_id):
+    """Stop a running scan."""
+    return jsonify(shannon_manager.stop_scan(scan_id))
+
+
+@app.route("/api/shannon/scans/<scan_id>", methods=["DELETE"])
+def api_shannon_scan_delete(scan_id):
+    """Delete a scan record."""
+    return jsonify({"success": shannon_manager.delete_scan(scan_id)})
+
+
+@app.route("/api/shannon/scans/<scan_id>/logs", methods=["GET"])
+def api_shannon_scan_logs(scan_id):
+    """Get recent workflow log lines for a scan."""
+    scan = shannon_manager.get_scan(scan_id)
+    if not scan:
+        return jsonify({"error": "Scan not found"}), 404
+    lines = int(request.args.get("lines", 150))
+    log_lines = shannon_manager.get_logs(scan["workspace"], lines)
+    return jsonify({"logs": log_lines})
+
+
+@app.route("/api/shannon/scans/<scan_id>/report", methods=["GET"])
+def api_shannon_scan_report(scan_id):
+    """Return the final markdown report for a completed scan."""
+    scan = shannon_manager.get_scan(scan_id)
+    if not scan:
+        return jsonify({"error": "Scan not found"}), 404
+    report = shannon_manager.get_report(scan["workspace"])
+    if not report:
+        return jsonify({"error": "Report not yet available"}), 404
+    return jsonify({"report": report, "workspace": scan["workspace"]})
+
+
+@app.route("/api/shannon/scans/<scan_id>/deliverables", methods=["GET"])
+def api_shannon_scan_deliverables(scan_id):
+    """List all deliverable files for a scan."""
+    scan = shannon_manager.get_scan(scan_id)
+    if not scan:
+        return jsonify({"error": "Scan not found"}), 404
+    files = shannon_manager.get_deliverables(scan["workspace"])
+    return jsonify({"files": files})
+
+
+@app.route("/api/shannon/stats", methods=["GET"])
+def api_shannon_stats():
+    """Shannon usage statistics."""
+    return jsonify(shannon_manager.get_stats())
 
 
 if __name__ == "__main__":
