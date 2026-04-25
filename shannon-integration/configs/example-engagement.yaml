@@ -1,0 +1,59 @@
+description: |
+  Example engagement config for Shannon + zwanski-BB.
+  Copy this file and fill in the details for your target.
+
+  USER AGENT (if required by the program):
+  Add a custom identifier: "ProgramName:yourhandle" at the end of the User-Agent.
+  Example: Mozilla/5.0 ... BugBountyProgram:yourhandle
+
+  RATE LIMITING:
+  For production targets, limit to 1-2 requests per second.
+
+  QUALIFYING VULNERABILITIES (examples — adjust per program):
+  - RCE, LFI, RFI, XXE, SSRF
+  - SQL/HTML/JS/PHP code injection
+  - XSS (not self-XSS)
+  - CSRF with real security impact
+  - Broken authentication and session management
+  - IDOR, CORS with real impact
+  - Horizontal and vertical privilege escalation
+  - Sensitive data exposure (PII, credentials, private keys)
+  - OAuth/SSO flaws (redirect_uri bypass, token theft, MFA bypass)
+  - Second-order injection, race conditions
+  - Staging environment exposure, CI/CD leaks
+
+  OUT OF SCOPE (examples — adjust per program):
+  - DoS / resource exhaustion
+  - Social engineering
+  - Clickjacking / UI redressing (no chained impact)
+  - Open redirects (no chained impact)
+  - Missing security headers
+  - Self-XSS
+  - Web Cache Poisoning
+
+rules:
+  avoid:
+    - description: "Skip logout endpoints"
+      type: path
+      url_path: "/logout"
+
+    - description: "Skip password reset — avoid disrupting accounts"
+      type: path
+      url_path: "/reset-password"
+
+    - description: "Skip contact/support forms (usually OOS)"
+      type: path
+      url_path: "/contact"
+
+  focus:
+    - description: "Prioritize authentication endpoints"
+      type: subdomain
+      url_path: "login"
+
+    - description: "Focus on API endpoints for injection and auth bugs"
+      type: subdomain
+      url_path: "api"
+
+pipeline:
+  retry_preset: default
+  max_concurrent_pipelines: 2

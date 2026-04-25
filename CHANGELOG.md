@@ -5,6 +5,57 @@ All notable changes to ZWANSKI Bug Bounty Platform will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-04-25 "Shannon Fusion"
+
+### 🤖 SHANNON AI AGENT INTEGRATION
+
+Merged zwanski-BB methodology into [Shannon](https://github.com/KeygraphHQ/shannon) — an AI-powered pentest pipeline built on Claude + Temporal. Shannon now runs 8 parallel specialist agents instead of the default 5, with the 3 new agents drawn directly from zwanski-BB's advanced methodology.
+
+#### New Agent Pairs (6 agents)
+
+**OAuth/SSO Agent** (`oauth-sso-vuln` → `oauth-sso-exploit`)
+- Full OAuth 2.0 / OIDC / SAML attack surface analysis
+- redirect_uri bypass (10+ techniques), rogue client registration, PKCE downgrade
+- JWT algorithm confusion (RS256→HS256), alg:none, nOAuth mutable claim hijack
+- MFA bypass via social login, Keycloak master realm exposure
+- Session lifecycle: logout invalidation, password change invalidation, refresh token reuse
+- Source: `04-auth-surface/oauth-sso-mapping.md`
+
+**Environment Bleed Agent** (`env-bleed-vuln` → `env-bleed-exploit`)
+- Automated staging/dev/UAT/preprod host discovery via `zwanski-subdomain-chain`
+- Spring Boot Actuator (`/actuator/env`, `/actuator/heapdump`), `.git/` exposure
+- Swagger/OpenAPI/GraphQL introspection on non-prod hosts
+- CI/CD exposure: Jenkins unauthenticated API, GitHub Actions secret leaks in logs
+- Subdomain takeover detection (dangling CNAME patterns)
+- Staging vs production code divergence mapping
+- Source: `06-environment-bleed/staging-prod-correlation.md`
+
+**Second-Order & Race Conditions Agent** (`second-order-vuln` → `second-order-exploit`)
+- Second-order injection tracing: profile fields → PDF export, email templates, admin panels, CSV export
+- PDF HTML injection → SSRF (wkhtmltopdf / headless Chrome)
+- CSV injection for Excel formula execution
+- Stored XSS → admin panel targeting with CSRF chain
+- Webhook SSRF via user-configured webhook URLs
+- Race conditions: check-then-act, coupon/promo reuse, referral abuse, vote limits
+- Tenant isolation failure detection (multi-tenant SaaS)
+- LLM prompt injection: direct, indirect, and data exfiltration via AI features
+- Source: `05-vuln-classes/second-order-and-races.md`
+
+#### Tools Added to Shannon Docker Image
+- `zwanski-oauth-mapper` — OAuth/OIDC endpoint mapper (from `scripts/zwanski-oauth-mapper.py`)
+- `zwanski-subdomain-chain` — Passive subdomain + staging pipeline (from `scripts/zwanski-subdomain-chain.sh`)
+- `httpx` — Live host probing (ProjectDiscovery)
+
+#### New Files
+- `shannon-integration/README.md` — Full setup and usage guide
+- `shannon-integration/prompts/` — All 6 new agent prompt templates
+- `shannon-integration/configs/example-engagement.yaml` — Sanitized config template
+
+### Changed
+- `VERSION` bumped to 2.3.0
+
+---
+
 ## [2.2.0] - 2026-04-23 "The Hunter"
 
 ### 🔥 GAME-CHANGING FEATURES
