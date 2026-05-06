@@ -1248,11 +1248,42 @@ def api_term_kill(task_id):
 def api_deploy():
     try:
         # Git deploy
-        result = subprocess.run('git add . && git commit -m "v2.0: Integrated C2 Controls, Auto-Port Recovery, Claude-Bug-Bounty Logic" || true && git push origin HEAD', shell=True, capture_output=True, text=True, cwd=str(ROOT), timeout=60)
-        if result.returncode == 0:
-            return jsonify({"ok": True, "output": result.stdout})
-        else:
-            return jsonify({"ok": False, "error": result.stderr}), 500
+        add_result = subprocess.run(
+            ["git", "add", "."],
+            capture_output=True,
+            text=True,
+            cwd=str(ROOT),
+            timeout=30,
+        )
+        if add_result.returncode != 0:
+            return jsonify({"ok": False, "error": add_result.stderr}), 500
+
+        commit_result = subprocess.run(
+            [
+                "git",
+                "commit",
+                "-m",
+                "v2.0: Integrated C2 Controls, Auto-Port Recovery, Claude-Bug-Bounty Logic",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(ROOT),
+            timeout=30,
+        )
+        # No changes to commit is non-fatal; continue to push.
+        if commit_result.returncode != 0 and "nothing to commit" not in (commit_result.stdout + commit_result.stderr).lower():
+            return jsonify({"ok": False, "error": commit_result.stderr}), 500
+
+        push_result = subprocess.run(
+            ["git", "push", "origin", "HEAD"],
+            capture_output=True,
+            text=True,
+            cwd=str(ROOT),
+            timeout=60,
+        )
+        if push_result.returncode == 0:
+            return jsonify({"ok": True, "output": push_result.stdout})
+        return jsonify({"ok": False, "error": push_result.stderr}), 500
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 502
 
