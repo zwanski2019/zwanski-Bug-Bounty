@@ -21,6 +21,8 @@ The repository includes a **Flask + Socket.IO** web UI (`ui/index.html`, `server
 zwanski start
 ```
 
+If the CLI shim is unavailable, you can run the dashboard directly with `python3 server.py`.
+
 Open **http://localhost:1337** (or set `PORT` in `.env`).
 
 ### What’s in the UI
