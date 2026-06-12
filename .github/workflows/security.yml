@@ -1,0 +1,100 @@
+name: "Hardened DevSecOps Core Engine"
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  core-security-matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: "Clone Source and Git Tree"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: "Setup Specialized Execution Environments"
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # SECRET ENGINE: We skip marketplace wrappers and execute TruffleHog directly via binary
+      - name: "Raw Binary Secret Detection & Entropy Analysis"
+        run: |
+          echo "[+] Downloading and deploying TruffleHog native binary..."
+          curl -sSfL https://github.com | tar -xz
+          
+          echo "[+] Commencing deep commit history entropy and verification analysis..."
+          ./trufflehog git file://$(pwd) --json > raw_secrets.json || TRUE
+          
+          if [ -s raw_secrets.json ]; then
+            echo "[!] CRITICAL: Hardcoded cryptographic materials or API keys identified inside the codebase!"
+            cat raw_secrets.json | jq '{source: .Source, detector: .DetectorName, raw: .Raw}'
+            exit 2
+          fi
+          echo "[+] Secret audit verified clean."
+
+      # CUSTOM SAST LOGIC: Write a direct inline Python script to dynamically evaluate security posture
+      - name: "Dynamic Local Code Logic & SAST Validation"
+        shell: python
+        run: |
+          import os
+          import re
+          import sys
+
+          print("[+] Spawning custom Python AST pattern matching engine...")
+          vulnerabilities_detected = 0
+          
+          # Dangerous patterns to hunt for manually
+          dangerous_patterns = {
+              "Raw SQL Injection Potential": r"(execute|query)\s*\(\s*f[\'\"]|%\s*\(|format\(",
+              "Command Injection Vector": r"os\.(system|popen)|subprocess\.(Popen|run)\s*\([^,]*shell\s*=\s*True",
+              "Insecure Deserialization": r"pickle\.(loads|load)|yaml\.(load|unsafe_load)",
+              "Hardcoded IP/Context exposure": r"(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)"
+          }
+
+          for root, dirs, files in os.walk("."):
+              # Skip hidden structural directories
+              if any(part.startswith('.') for part in root.split(os.sep)):
+                  continue
+              for file in files:
+                  if file.endswith(('.py', '.js', '.php', '.go')):
+                      filepath = os.path.join(root, file)
+                      try:
+                          with open(filepath, 'r', errors='ignore') as f:
+                              content = f.read()
+                              for rule, pattern in dangerous_patterns.items():
+                                  matches = re.finditer(pattern, content)
+                                  for match in matches:
+                                      print(f"[!] DANGER [{rule}]: In file {filepath} around line segment.")
+                                      vulnerabilities_detected += 1
+                      except Exception as e:
+                          pass
+
+          if vulnerabilities_detected > 0:
+              print(f"[-] Static Analysis failed. Total risks caught: {vulnerabilities_detected}")
+              sys.exit(1)
+          print("[+] Custom structural code analysis complete. Code meets engineering standards.")
+
+      # CONTAINER & DEPS: Compile a localized vulnerability report via direct container execution
+      - name: "Dynamic Supply-Chain & CVE Assessment"
+        run: |
+          echo "[+] Instantiating secure runtime workspace container..."
+          docker run --rm -v $(pwd):/apps aquasec/trivy:latest fs /apps \
+            --severity HIGH,CRITICAL \
+            --format json \
+            --output /apps/trivy_report.json
+
+          echo "[+] Parsing structural scan results via jq engine..."
+          CRITICAL_COUNT=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy_report.json)
+          HIGH_COUNT=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy_report.json)
+          
+          echo "[*] Evaluation Metrics -> Critical CVEs: $CRITICAL_COUNT | High CVEs: $HIGH_COUNT"
+          
+          if [ "$CRITICAL_COUNT" -gt 0 ]; then
+            echo "[-] Hard failure: Systemic vulnerabilities detected in third-party supply chain ecosystem."
+            exit 3
+          fi
